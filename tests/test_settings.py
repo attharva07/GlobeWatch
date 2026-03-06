@@ -7,23 +7,23 @@ def _build_settings(**env_values: str) -> Settings:
     return Settings(_env_file=None, **env_values)
 
 
-def test_allowed_origins_parses_from_csv_string() -> None:
-    settings = _build_settings(ALLOWED_ORIGINS="https://one.example, https://two.example")
-    assert settings.ALLOWED_ORIGINS == ["https://one.example", "https://two.example"]
-
-
-def test_allowed_origins_parses_from_json_list_string() -> None:
+def test_allowed_origins_parses_from_json_list() -> None:
     settings = _build_settings(ALLOWED_ORIGINS='["https://one.example","https://two.example"]')
     assert settings.ALLOWED_ORIGINS == ["https://one.example", "https://two.example"]
 
 
-def test_api_keys_parses_from_csv_string() -> None:
-    settings = _build_settings(API_KEYS="key-1, key-2")
+def test_allowed_origins_parses_from_comma_separated_string() -> None:
+    settings = _build_settings(ALLOWED_ORIGINS="https://one.example, https://two.example")
+    assert settings.ALLOWED_ORIGINS == ["https://one.example", "https://two.example"]
+
+
+def test_api_keys_parses_from_json_list() -> None:
+    settings = _build_settings(API_KEYS='["key-1","key-2"]')
     assert settings.API_KEYS == ["key-1", "key-2"]
 
 
-def test_api_keys_parses_from_json_list_string() -> None:
-    settings = _build_settings(API_KEYS='["key-1","key-2"]')
+def test_api_keys_parses_from_comma_separated_string() -> None:
+    settings = _build_settings(API_KEYS="key-1, key-2")
     assert settings.API_KEYS == ["key-1", "key-2"]
 
 
