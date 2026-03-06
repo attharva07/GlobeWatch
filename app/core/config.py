@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Literal
 
@@ -33,19 +34,35 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
-    @field_validator("ALLOWED_ORIGINS", mode="before")
-    @classmethod
-    def parse_origins(cls, value: str | list[str]) -> list[str]:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @staticmethod
+    def _parse_list_like_env(value: object) -> list[str]:
+        if value is None:
+            return []
 
-    @field_validator("API_KEYS", mode="before")
-    @classmethod
-    def parse_api_keys(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+
         if isinstance(value, str):
-            return [key.strip() for key in value.split(",") if key.strip()]
-        return value
+            raw_value = value.strip()
+            if not raw_value:
+                return []
+
+            try:
+                parsed_value = json.loads(raw_value)
+            except json.JSONDecodeError:
+                parsed_value = None
+
+            if isinstance(parsed_value, list):
+                return [str(item).strip() for item in parsed_value if str(item).strip()]
+
+            return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+        return [str(value).strip()] if str(value).strip() else []
+
+    @field_validator("ALLOWED_ORIGINS", "API_KEYS", mode="before")
+    @classmethod
+    def parse_list_fields(cls, value: object) -> list[str]:
+        return cls._parse_list_like_env(value)
 
     @field_validator("API_PREFIX")
     @classmethod

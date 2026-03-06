@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create CI environment file
+        run: |
+          cat > .env <<'ENV'
+          APP_NAME=GlobeWatch API
+          APP_VERSION=0.2.0
+          ENVIRONMENT=test
+          DEBUG=false
+          API_PREFIX=/api/v1
+          DATABASE_URL=sqlite:///./globewatch.db
+          SECRET_KEY=test-secret
+          ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+          API_KEY_ENABLED=false
+          API_KEY_HEADER_NAME=X-API-Key
+          API_KEYS=[]
+          RATE_LIMIT_ENABLED=true
+          RATE_LIMIT_PER_MINUTE=120
+          LOG_LEVEL=INFO
+          ENV
+
+      - name: Run tests
+        run: pytest -q
