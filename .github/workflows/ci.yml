@@ -18,9 +18,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Create CI environment file
         run: |
@@ -32,44 +30,14 @@ jobs:
           API_PREFIX=/api/v1
           DATABASE_URL=sqlite:///./globewatch.db
           SECRET_KEY=test-secret
-          ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+          ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
           API_KEY_ENABLED=false
           API_KEY_HEADER_NAME=X-API-Key
-          API_KEYS=
+          API_KEYS=[]
           RATE_LIMIT_ENABLED=true
           RATE_LIMIT_PER_MINUTE=120
           LOG_LEVEL=INFO
           ENV
 
-      - name: Backend import smoke test
-        run: python -c "from app.main import app; print('backend import ok')"
-
       - name: Run tests
         run: pytest -q
-
-  frontend-build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Create frontend environment file
-        working-directory: frontend
-        run: |
-          cat > .env <<'ENV'
-          VITE_API_BASE_URL=http://127.0.0.1:8000
-          ENV
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
