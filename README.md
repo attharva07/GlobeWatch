@@ -29,6 +29,13 @@ cd globewatch
 pytest -q
 ```
 
+## Local Startup (Backend + Frontend)
+- Copy backend env file at repo root: `cp .env.example .env`
+- Copy frontend env file: `cp frontend/.env.example frontend/.env`
+- Run backend from repo root (serves at `http://127.0.0.1:8000`)
+- Run frontend from `frontend/` (serves at `http://localhost:5173`)
+- Frontend should target backend URL `http://127.0.0.1:8000`
+
 ## API Routes
 - `GET /health`
 - `GET /api/v1/globe/markers?layers=news&severity=high&category=weather_alert&limit=20`
