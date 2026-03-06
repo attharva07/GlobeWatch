@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create backend CI environment
+        run: |
+          cat > .env <<'EOF'
+          APP_NAME=GlobeWatch API
+          APP_VERSION=0.2.0
+          ENVIRONMENT=test
+          DEBUG=false
+          API_PREFIX=/api/v1
+          DATABASE_URL=sqlite:///./globewatch.db
+          SECRET_KEY=ci-secret-key
+          ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+          API_KEY_ENABLED=false
+          API_KEY_HEADER_NAME=X-API-Key
+          API_KEYS=
+          RATE_LIMIT_ENABLED=true
+          RATE_LIMIT_PER_MINUTE=120
+          LOG_LEVEL=INFO
+          EOF
+
+      - name: Run backend tests
+        run: pytest -q
+
+      - name: Smoke test import
+        run: python -c "import app.main"
+
+      - name: Start backend and probe endpoints
+        run: |
+          python run.py > backend.log 2>&1 &
+          BACKEND_PID=$!
+          trap "kill $BACKEND_PID" EXIT
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --show-error --silent http://127.0.0.1:8000/health
+          curl --fail --show-error --silent "http://127.0.0.1:8000/api/v1/globe/markers?layers=news"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Create frontend environment
+        run: echo "VITE_API_BASE_URL=http://127.0.0.1:8000" > .env
+
+      - name: Build frontend
+        run: npm run build

@@ -12,5 +12,5 @@ def test_health_route_returns_service_metadata() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert "app_name" in payload
-    assert "version" in payload
+    assert payload["app_name"]
+    assert payload["version"]

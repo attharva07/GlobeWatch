@@ -1,6 +1,6 @@
-# GlobeWatch Backend
+# GlobeWatch
 
-GlobeWatch is a secure backend foundation for a public-data situational-awareness globe application. This backend currently serves normalized geospatial **news/event** markers and includes safe placeholders for weather, flights, and camera layers.
+GlobeWatch is a secure backend foundation for a public-data situational-awareness globe application. The repository includes a FastAPI backend and a Vite frontend.
 
 ## Tech Stack
 - Python 3.12+
@@ -8,26 +8,45 @@ GlobeWatch is a secure backend foundation for a public-data situational-awarenes
 - SQLAlchemy + SQLite
 - Uvicorn
 - Pytest
+- Node.js 20 + Vite
 
-## Quick Start
-```bash
-cd globewatch
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python run.py
-```
+## Local Startup
+1. Create backend environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+2. Create frontend environment variables:
+   ```bash
+   cp frontend/.env.example frontend/.env
+   ```
+3. Start backend (binds to `127.0.0.1:8000`):
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   python run.py
+   ```
+4. Start frontend (binds to `localhost:5173`) in another shell:
+   ```bash
+   cd frontend
+   npm ci
+   npm run dev
+   ```
 
 API docs:
-- Swagger UI: `http://localhost:8000/docs`
-- OpenAPI JSON: `http://localhost:8000/openapi.json`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
 
 ## Run Tests
 ```bash
-cd globewatch
 pytest -q
 ```
+
+## CI
+GitHub Actions CI runs on every push and pull request via `.github/workflows/ci.yml`.
+
+- **Backend job**: installs Python dependencies, writes CI `.env`, runs `pytest`, imports `app.main`, boots the backend, and curls `/health` plus `/api/v1/globe/markers?layers=news`.
+- **Frontend job**: installs dependencies with `npm ci`, writes frontend `.env`, and runs `npm run build`.
 
 ## API Routes
 - `GET /health`
@@ -40,36 +59,26 @@ pytest -q
 - `GET /api/v1/cameras/status`
 
 ## Environment Variables
-See `.env.example`.
-
-Key settings:
-- `APP_NAME`
-- `APP_VERSION`
-- `ENVIRONMENT`
-- `API_PREFIX`
-- `DATABASE_URL`
-- `ALLOWED_ORIGINS`
-- `DEBUG`
-- `API_KEY_ENABLED`
-- `API_KEY`
+See `.env.example` and `frontend/.env.example`.
 
 ## Project Structure
 ```text
-globewatch/
-  app/
-    api/routes/
-    core/
-    db/
-    models/
-    repositories/
-    schemas/
-    services/
-    utils/
-    main.py
-  tests/
-  run.py
-  requirements.txt
-  .env.example
+app/
+  api/routes/
+  core/
+  db/
+  models/
+  repositories/
+  schemas/
+  services/
+  utils/
+  main.py
+frontend/
+tests/
+run.py
+requirements.txt
+.env.example
+frontend/.env.example
 ```
 
 ## Architecture Notes
