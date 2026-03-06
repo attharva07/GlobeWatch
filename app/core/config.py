@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -23,11 +23,13 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite:///./globewatch.db"
     SECRET_KEY: str = "local-dev-change-me"
-    ALLOWED_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"])
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
 
     API_KEY_ENABLED: bool = False
     API_KEY_HEADER_NAME: str = "X-API-Key"
-    API_KEYS: list[str] = Field(default_factory=list)
+    API_KEYS: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 120
