@@ -8,6 +8,17 @@ from logging.config import dictConfig
 from app.core.config import Settings
 
 
+class ContextFormatter(logging.Formatter):
+    """Add optional context fields to standard logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        if not hasattr(record, "path"):
+            record.path = "-"
+        if not hasattr(record, "client_ip"):
+            record.client_ip = "-"
+        return super().format(record)
+
+
 def setup_logging(settings: Settings) -> None:
     """Configure application logging with predictable structure."""
 
@@ -17,7 +28,8 @@ def setup_logging(settings: Settings) -> None:
             "disable_existing_loggers": False,
             "formatters": {
                 "standard": {
-                    "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+                    "()": ContextFormatter,
+                    "format": f"%(asctime)s %(levelname)s [%(name)s] env={settings.ENVIRONMENT} path=%(path)s ip=%(client_ip)s %(message)s",
                 }
             },
             "handlers": {
