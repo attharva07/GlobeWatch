@@ -24,7 +24,11 @@ body,
   background: radial-gradient(circle at top, #131a2f 0%, #060a14 55%, #03050a 100%);
 }
 
-.globe-viewer {
+
+.globe-viewer,
+.globe-viewer .cesium-widget,
+.globe-viewer .cesium-widget canvas {
+  display: block;
   width: 100%;
   height: 100%;
 }

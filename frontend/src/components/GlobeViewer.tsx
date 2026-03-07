@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react';
 import {
+  Cartesian2,
   Cartesian3,
+  Color,
+  EllipsoidTerrainProvider,
   Entity,
+  ImageryLayer,
   Math as CesiumMath,
+  OpenStreetMapImageryProvider,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
-  Cartesian2,
   Viewer
 } from 'cesium';
 import type { Marker } from '../types/marker';
@@ -27,52 +31,97 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
       return;
     }
 
-    const viewer = new Viewer(containerRef.current, {
-      animation: false,
-      baseLayerPicker: false,
-      fullscreenButton: false,
-      geocoder: false,
-      homeButton: false,
-      infoBox: false,
-      navigationHelpButton: false,
-      sceneModePicker: false,
-      selectionIndicator: false,
-      timeline: false,
-      shouldAnimate: true
-    });
+    let cancelled = false;
 
-    viewer.scene.globe.enableLighting = true;
-    if (viewer.scene.skyBox) {
-      viewer.scene.skyBox.show = true;
-    }
-    viewer.scene.camera.flyTo({
-      destination: Cartesian3.fromDegrees(10, 18, 20_000_000),
-      orientation: {
-        heading: CesiumMath.toRadians(15),
-        pitch: CesiumMath.toRadians(-35),
-        roll: 0
-      },
-      duration: 0
-    });
+    const initializeViewer = () => {
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+      const ionToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
+      console.info('[GlobeViewer] Initializing Cesium viewer', {
+        apiBaseUrl,
+        hasIonToken: Boolean(ionToken)
+      });
 
-    const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((movement: { position: Cartesian2 }) => {
-      const pickedObject = viewer.scene.pick(movement.position);
-      if (!pickedObject || !(pickedObject.id instanceof Entity)) {
-        onSelectMarker(null);
+      const imageryProvider = new OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/'
+      });
+
+      imageryProvider.errorEvent.addEventListener((error) => {
+        console.error('[GlobeViewer] Base imagery provider error', error);
+      });
+
+      let viewer: Viewer;
+
+      try {
+        viewer = new Viewer(containerRef.current!, {
+          animation: false,
+          baseLayerPicker: false,
+          fullscreenButton: false,
+          geocoder: false,
+          homeButton: false,
+          infoBox: false,
+          navigationHelpButton: false,
+          sceneModePicker: false,
+          selectionIndicator: false,
+          timeline: false,
+          shouldAnimate: true,
+          baseLayer: new ImageryLayer(imageryProvider),
+          terrainProvider: new EllipsoidTerrainProvider()
+        });
+      } catch (error) {
+        console.error('[GlobeViewer] Failed to create Cesium viewer', error);
         return;
       }
 
-      const marker = pickedObject.id.properties?.marker?.getValue();
-      onSelectMarker((marker as Marker) ?? null);
-    }, ScreenSpaceEventType.LEFT_CLICK);
+      if (cancelled) {
+        viewer.destroy();
+        return;
+      }
 
-    viewerRef.current = viewer;
-    handlerRef.current = handler;
+      viewer.scene.globe.show = true;
+      viewer.scene.globe.enableLighting = true;
+      if (viewer.scene.skyBox) {
+        viewer.scene.skyBox.show = true;
+      }
+      viewer.scene.backgroundColor = Color.fromCssColorString('#03050a');
+
+      const hasTerrainProvider = viewer.terrainProvider instanceof EllipsoidTerrainProvider;
+      if (!hasTerrainProvider) {
+        console.error('[GlobeViewer] Unexpected terrain provider configuration', viewer.terrainProvider);
+      } else {
+        console.info('[GlobeViewer] Using ellipsoid terrain provider for reliable globe rendering');
+      }
+
+      viewer.camera.setView({
+        destination: Cartesian3.fromDegrees(0, 18, 23_000_000),
+        orientation: {
+          heading: CesiumMath.toRadians(0),
+          pitch: CesiumMath.toRadians(-52),
+          roll: 0
+        }
+      });
+
+      const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+      handler.setInputAction((movement: { position: Cartesian2 }) => {
+        const pickedObject = viewer.scene.pick(movement.position);
+        if (!pickedObject || !(pickedObject.id instanceof Entity)) {
+          onSelectMarker(null);
+          return;
+        }
+
+        const marker = pickedObject.id.properties?.marker?.getValue();
+        onSelectMarker((marker as Marker) ?? null);
+      }, ScreenSpaceEventType.LEFT_CLICK);
+
+      viewerRef.current = viewer;
+      handlerRef.current = handler;
+    };
+
+    initializeViewer();
 
     return () => {
-      handler.destroy();
-      viewer.destroy();
+      cancelled = true;
+      handlerRef.current?.destroy();
+      viewerRef.current?.destroy();
       handlerRef.current = null;
       viewerRef.current = null;
     };
@@ -103,5 +152,5 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
     });
   }, [markers, selectedMarkerId]);
 
-  return <div className="globe-viewer" ref={containerRef} />;
+  return <div ref={containerRef} className="globe-viewer" />;
 }
