@@ -6,7 +6,6 @@ import {
   EllipsoidTerrainProvider,
   Entity,
   ImageryLayer,
-  Math as CesiumMath,
   OpenStreetMapImageryProvider,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
@@ -30,6 +29,10 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
     if (!containerRef.current || viewerRef.current) return;
 
     const imageryProvider = new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' });
+    imageryProvider.errorEvent.addEventListener((error) => {
+      console.error('OpenStreetMap imagery failed to load in GlobeViewer.', error);
+    });
+
     const viewer = new Viewer(containerRef.current, {
       animation: false,
       baseLayerPicker: false,
@@ -48,15 +51,15 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
 
     viewer.scene.globe.show = true;
     viewer.scene.globe.enableLighting = true;
+    viewer.scene.globe.baseColor = Color.DARKSLATEGRAY;
+    if (viewer.scene.skyAtmosphere) {
+      viewer.scene.skyAtmosphere.show = true;
+    }
     viewer.scene.backgroundColor = Color.fromCssColorString('#03050a');
 
-    viewer.camera.setView({
-      destination: Cartesian3.fromDegrees(-25, 25, 24_000_000),
-      orientation: {
-        heading: CesiumMath.toRadians(0),
-        pitch: CesiumMath.toRadians(-58),
-        roll: 0
-      }
+    viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(0, 20, 22_000_000),
+      duration: 0
     });
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
