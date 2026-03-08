@@ -69,7 +69,10 @@ def create_app(app_settings: Settings) -> FastAPI:
             content["error_type"] = exc.__class__.__name__
         return JSONResponse(status_code=500, content=content)
 
-    async def ingestion_loop() -> None:
+    async def ingestion_loop(initial_delay_seconds: int = 0) -> None:
+        if initial_delay_seconds > 0:
+            await asyncio.sleep(initial_delay_seconds)
+
         while True:
             db = next(get_db_session())
             try:
@@ -84,18 +87,28 @@ def create_app(app_settings: Settings) -> FastAPI:
     async def startup_event() -> None:
         logger.info("Starting service", extra={"path": "startup", "client_ip": "-"})
         Base.metadata.create_all(bind=engine)
+        startup_ingestion_attempted = False
         db = next(get_db_session())
         try:
             news_service = NewsService(db, app_settings)
             news_service.seed_if_empty()
-            if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_PROVIDER:
-                with contextlib.suppress(Exception):
+            if (
+                app_settings.ENVIRONMENT != "test"
+                and app_settings.INGESTION_ENABLED
+                and app_settings.INGESTION_PROVIDER
+                and app_settings.INGESTION_STARTUP_RUN
+            ):
+                startup_ingestion_attempted = True
+                try:
                     EventIngestionService(db, app_settings).ingest()
+                except Exception:
+                    logger.exception("Startup ingestion cycle failed")
         finally:
             db.close()
 
-        if app_settings.ENVIRONMENT != "test":
-            app.state.ingestion_task = asyncio.create_task(ingestion_loop())
+        if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_ENABLED and app_settings.INGESTION_PROVIDER:
+            initial_delay = app_settings.INGESTION_INTERVAL_SECONDS if startup_ingestion_attempted else 0
+            app.state.ingestion_task = asyncio.create_task(ingestion_loop(initial_delay_seconds=initial_delay))
         logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
 
     @app.on_event("shutdown")

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
-from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent
+from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent, ProviderRateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,22 @@ class EventIngestionService:
         self.repo = EventRepository(db)
         self.settings = settings
 
-    def ingest(self) -> dict[str, int | str]:
+    def ingest(self) -> dict[str, int | str | bool]:
         provider = self._provider()
-        provider_events = provider.fetch_events()
+        try:
+            provider_events = provider.fetch_events()
+        except ProviderRateLimitError:
+            logger.warning(
+                "Ingestion skipped due to provider rate limit; retaining cached database data",
+                extra={"provider": self.settings.INGESTION_PROVIDER, "data_mode": "cached", "rate_limited": True},
+            )
+            return {
+                "provider": self.settings.INGESTION_PROVIDER,
+                "created": 0,
+                "updated": 0,
+                "rate_limited": True,
+                "data_mode": "cached",
+            }
         created = 0
         updated = 0
         seen_external_ids: set[str] = set()
@@ -81,8 +94,28 @@ class EventIngestionService:
             seen_fingerprints.add(fingerprint)
 
         self.repo.commit()
-        logger.info("Ingestion cycle complete", extra={"events_created": created, "events_updated": updated})
-        return {"provider": self.settings.INGESTION_PROVIDER, "created": created, "updated": updated}
+        data_mode = "fresh" if (created or updated) else "cached"
+        logger.info(
+            "Ingestion cycle complete",
+            extra={
+                "events_created": created,
+                "events_updated": updated,
+                "provider": self.settings.INGESTION_PROVIDER,
+                "data_mode": data_mode,
+            },
+        )
+        if not provider_events:
+            logger.warning(
+                "Ingestion returned no provider events; continuing with cached database data",
+                extra={"provider": self.settings.INGESTION_PROVIDER, "data_mode": "cached", "rate_limited": False},
+            )
+        return {
+            "provider": self.settings.INGESTION_PROVIDER,
+            "created": created,
+            "updated": updated,
+            "rate_limited": False,
+            "data_mode": data_mode,
+        }
 
     def _provider(self) -> GDELTProvider:
         return GDELTProvider(self.settings)

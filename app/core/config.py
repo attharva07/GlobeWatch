@@ -38,10 +38,12 @@ class Settings(BaseSettings):
 
     ENABLE_MOCK_SEED: bool = False
     INGESTION_PROVIDER: str = "gdelt"
-    INGESTION_INTERVAL_SECONDS: int = 300
+    INGESTION_ENABLED: bool = True
+    INGESTION_INTERVAL_SECONDS: int = 900
+    INGESTION_STARTUP_RUN: bool = True
     GDELT_BASE_URL: str = "https://api.gdeltproject.org/api/v2/doc/doc"
     GDELT_QUERY: str = "(flood OR wildfire OR earthquake OR outbreak OR protest)"
-    GDELT_MAX_RECORDS: int = 250
+    GDELT_MAX_RECORDS: int = 50
 
     @staticmethod
     def _parse_list_like_env(value: object) -> list[str]:

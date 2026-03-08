@@ -11,6 +11,10 @@ import httpx
 from app.core.config import Settings
 
 
+class ProviderRateLimitError(Exception):
+    """Raised when provider responds with HTTP 429."""
+
+
 @dataclass
 class ProviderEvent:
     external_id: str | None
@@ -42,10 +46,15 @@ class GDELTProvider:
             "format": "json",
             "sort": "datedesc",
         }
-        with httpx.Client(timeout=20.0) as client:
-            response = client.get(self.settings.GDELT_BASE_URL, params=params)
-            response.raise_for_status()
-            payload = response.json()
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                response = client.get(self.settings.GDELT_BASE_URL, params=params)
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                raise ProviderRateLimitError("GDELT rate limit reached (HTTP 429)") from exc
+            raise
 
         articles = payload.get("articles", []) if isinstance(payload, dict) else []
         normalized: list[ProviderEvent] = []
