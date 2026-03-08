@@ -22,14 +22,18 @@ npm run dev
 ## Provider configuration
 Set in `.env`:
 - `INGESTION_PROVIDER=gdelt`
-- `INGESTION_INTERVAL_SECONDS=300`
+- `INGESTION_ENABLED=true`
+- `INGESTION_INTERVAL_SECONDS=900`
+- `INGESTION_STARTUP_RUN=true`
 - `GDELT_BASE_URL`
 - `GDELT_QUERY`
 - `GDELT_MAX_RECORDS`
 - `ENABLE_MOCK_SEED=false` (default)
 
 ## Ingestion system
-- Startup runs one ingestion cycle via `EventIngestionService`.
+- Startup runs at most one ingestion cycle when `INGESTION_STARTUP_RUN=true`.
+- The periodic async loop waits for `INGESTION_INTERVAL_SECONDS` after startup ingestion before the next cycle (prevents immediate duplicate calls).
+- HTTP 429 responses are handled as provider rate-limit warnings: the current cycle is skipped, cached DB data is kept, and retry happens on the next scheduled interval.
 - A periodic async loop fetches provider events, normalizes fields, deduplicates by `external_id` or a fingerprint hash (`title + timestamp + location`), and upserts into DB.
 - Mock seed remains available only as an explicit development fallback.
 

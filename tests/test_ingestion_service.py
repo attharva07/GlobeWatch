@@ -6,7 +6,7 @@ from app.core.database import get_db_session
 from app.db.base import Base
 from app.db.session import engine
 from app.services.event_ingestion_service import EventIngestionService
-from app.services.providers.gdelt_provider import ProviderEvent
+from app.services.providers.gdelt_provider import ProviderEvent, ProviderRateLimitError
 
 
 def test_ingestion_deduplicates_by_external_id() -> None:
@@ -39,4 +39,23 @@ def test_ingestion_deduplicates_by_external_id() -> None:
     result = service.ingest()
     assert result["created"] == 1
     assert result["updated"] == 1
+    db.close()
+
+
+def test_ingestion_handles_provider_rate_limit() -> None:
+    Base.metadata.create_all(bind=engine)
+    db = next(get_db_session())
+    settings = Settings(ENVIRONMENT="test")
+    service = EventIngestionService(db, settings)
+
+    class StubProvider:
+        def fetch_events(self):
+            raise ProviderRateLimitError("rate limited")
+
+    service._provider = lambda: StubProvider()  # type: ignore[method-assign]
+    result = service.ingest()
+    assert result["created"] == 0
+    assert result["updated"] == 0
+    assert result["rate_limited"] is True
+    assert result["data_mode"] == "cached"
     db.close()
