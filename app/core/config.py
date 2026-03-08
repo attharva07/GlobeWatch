@@ -36,6 +36,13 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
+    ENABLE_MOCK_SEED: bool = False
+    INGESTION_PROVIDER: str = "gdelt"
+    INGESTION_INTERVAL_SECONDS: int = 300
+    GDELT_BASE_URL: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+    GDELT_QUERY: str = "(flood OR wildfire OR earthquake OR outbreak OR protest)"
+    GDELT_MAX_RECORDS: int = 250
+
     @staticmethod
     def _parse_list_like_env(value: object) -> list[str]:
         if value is None:
@@ -78,6 +85,13 @@ class Settings(BaseSettings):
     def validate_rate_limit(cls, value: int) -> int:
         if value < 1:
             raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1")
+        return value
+
+    @field_validator("INGESTION_INTERVAL_SECONDS")
+    @classmethod
+    def validate_ingestion_interval(cls, value: int) -> int:
+        if value < 60:
+            raise ValueError("INGESTION_INTERVAL_SECONDS must be >= 60")
         return value
 
     @model_validator(mode="after")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -16,8 +18,8 @@ from app.core.logging import setup_logging
 from app.core.security import optional_api_key_guard
 from app.db.base import Base
 from app.db.session import engine
+from app.services.event_ingestion_service import EventIngestionService
 from app.services.news_service import NewsService
-# Ensure ORM models are registered with SQLAlchemy metadata.
 from app.models import event as _event_model  # noqa: F401
 
 settings = get_settings()
@@ -26,8 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(app_settings: Settings) -> FastAPI:
-    """Create configured FastAPI instance."""
-
     app = FastAPI(
         title=app_settings.APP_NAME,
         version=app_settings.APP_VERSION,
@@ -69,22 +69,42 @@ def create_app(app_settings: Settings) -> FastAPI:
             content["error_type"] = exc.__class__.__name__
         return JSONResponse(status_code=500, content=content)
 
+    async def ingestion_loop() -> None:
+        while True:
+            db = next(get_db_session())
+            try:
+                EventIngestionService(db, app_settings).ingest()
+            except Exception:
+                logger.exception("Ingestion cycle failed")
+            finally:
+                db.close()
+            await asyncio.sleep(app_settings.INGESTION_INTERVAL_SECONDS)
+
     @app.on_event("startup")
-    def startup_event() -> None:
-        logger.info(
-            "Starting service",
-            extra={"path": "startup", "client_ip": "-"},
-        )
+    async def startup_event() -> None:
+        logger.info("Starting service", extra={"path": "startup", "client_ip": "-"})
         Base.metadata.create_all(bind=engine)
         db = next(get_db_session())
         try:
-            NewsService(db).seed_if_empty()
+            news_service = NewsService(db, app_settings)
+            news_service.seed_if_empty()
+            if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_PROVIDER:
+                with contextlib.suppress(Exception):
+                    EventIngestionService(db, app_settings).ingest()
         finally:
             db.close()
+
+        if app_settings.ENVIRONMENT != "test":
+            app.state.ingestion_task = asyncio.create_task(ingestion_loop())
         logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
 
     @app.on_event("shutdown")
-    def shutdown_event() -> None:
+    async def shutdown_event() -> None:
+        task = getattr(app.state, "ingestion_task", None)
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         logger.info("Shutting down service", extra={"path": "shutdown", "client_ip": "-"})
 
     app.include_router(health.router, dependencies=[Depends(optional_api_key_guard)])

@@ -1,60 +1,34 @@
-import type { Marker } from '../types/marker';
+import type { RegionEvent, RegionMarker } from '../types/marker';
 import { formatTimestamp } from '../lib/cesium';
 
 interface MarkerPanelProps {
-  marker: Marker | null;
+  marker: RegionMarker | null;
+  events: RegionEvent[];
 }
 
-function metadataValue(value: unknown): string {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-
-  if (value === null || value === undefined) {
-    return '—';
-  }
-
-  return JSON.stringify(value);
-}
-
-export function MarkerPanel({ marker }: MarkerPanelProps) {
+export function MarkerPanel({ marker, events }: MarkerPanelProps) {
   if (!marker) {
     return (
       <aside className="marker-panel marker-panel-empty">
-        <h2>Event details</h2>
-        <p>Select a marker to inspect world-event details.</p>
+        <h2>Region details</h2>
+        <p>Select a region marker to inspect aggregated events.</p>
       </aside>
     );
   }
 
-  const metadataKeys = ['category', 'country', 'city', 'description'];
-
   return (
     <aside className="marker-panel">
-      <h2>{marker.title}</h2>
-      <dl>
-        <dt>Type</dt>
-        <dd>{marker.type}</dd>
-
-        <dt>Severity</dt>
-        <dd>{marker.severity}</dd>
-
-        <dt>Source</dt>
-        <dd>{marker.source}</dd>
-
-        <dt>Timestamp</dt>
-        <dd>{formatTimestamp(marker.timestamp)}</dd>
-      </dl>
-
-      <h3>Metadata</h3>
-      <dl>
-        {metadataKeys.map((key) => (
-          <div key={key} className="metadata-row">
-            <dt>{key}</dt>
-            <dd>{metadataValue(marker.metadata?.[key])}</dd>
-          </div>
-        ))}
-      </dl>
+      <h2>Region: {marker.region_name}</h2>
+      <p>Events: {marker.event_count}</p>
+      {events.map((event) => (
+        <div key={event.id} className="metadata-row">
+          <strong>{event.title}</strong>
+          <p>{event.description}</p>
+          <small>
+            {event.category} · {event.city}, {event.country} · {formatTimestamp(event.event_timestamp)}
+          </small>
+        </div>
+      ))}
     </aside>
   );
 }

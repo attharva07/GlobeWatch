@@ -1,35 +1,36 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchRegionEvents } from '../api/globe';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { GlobeViewer } from '../components/GlobeViewer';
 import { LayerControls } from '../components/LayerControls';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { MarkerPanel } from '../components/MarkerPanel';
 import { useMarkers } from '../hooks/useMarkers';
-import type { Marker } from '../types/marker';
-
-const NEWS_LAYER = 'news';
+import type { RegionEvent, RegionMarker } from '../types/marker';
 
 export function Dashboard() {
   const [newsEnabled, setNewsEnabled] = useState(true);
-  const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<RegionMarker | null>(null);
+  const [events, setEvents] = useState<RegionEvent[]>([]);
+  const { markers, markerCount, loading, error, refresh } = useMarkers(newsEnabled);
 
-  const selectedLayers = useMemo(() => (newsEnabled ? [NEWS_LAYER] : []), [newsEnabled]);
-  const { markers, markerCount, loading, error, refresh } = useMarkers(selectedLayers);
+  useEffect(() => {
+    if (!selectedMarker) {
+      setEvents([]);
+      return;
+    }
+    fetchRegionEvents(selectedMarker.region_id)
+      .then((response) => setEvents(response.events))
+      .catch(() => setEvents([]));
+  }, [selectedMarker]);
 
   return (
     <div className="dashboard-layout">
-      <GlobeViewer
-        markers={markers}
-        selectedMarkerId={selectedMarker?.id ?? null}
-        onSelectMarker={setSelectedMarker}
-      />
-
+      <GlobeViewer markers={markers} selectedMarkerId={selectedMarker?.region_id ?? null} onSelectMarker={setSelectedMarker} />
       {loading && <LoadingOverlay />}
       {error && <ErrorBanner message={error} />}
 
-      {!loading && !error && markers.length === 0 && (
-        <div className="empty-state">No markers returned from backend for the active layers.</div>
-      )}
+      {!loading && !error && markers.length === 0 && <div className="empty-state">No region markers returned from backend.</div>}
 
       <LayerControls
         newsEnabled={newsEnabled}
@@ -45,7 +46,7 @@ export function Dashboard() {
         }}
       />
 
-      <MarkerPanel marker={selectedMarker} />
+      <MarkerPanel marker={selectedMarker} events={events} />
     </div>
   );
 }

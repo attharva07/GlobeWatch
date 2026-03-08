@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db_session
 from app.core.security import rate_limit_guard
 from app.schemas.event import EventListResponse, EventRead
@@ -21,9 +22,7 @@ def list_events(
     limit: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db_session),
 ) -> EventListResponse:
-    """List geolocated news events from DB-backed data."""
-
-    service = NewsService(db)
+    service = NewsService(db, get_settings())
     severity_value = severity.value if severity else None
     events = service.get_events(severity=severity_value, category=category, limit=limit)
     return EventListResponse(events=[EventRead.model_validate(e) for e in events], count=len(events))
@@ -31,7 +30,4 @@ def list_events(
 
 @router.get("/status")
 def news_status(db: Session = Depends(get_db_session)) -> dict[str, str | bool | int]:
-    """Return news ingestion/readiness details."""
-
-    service = NewsService(db)
-    return service.status()
+    return NewsService(db, get_settings()).status()
