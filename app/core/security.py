@@ -14,7 +14,14 @@ logger = logging.getLogger(__name__)
 
 
 class InMemoryRateLimiter:
-    """Lightweight in-memory fixed-window limiter keyed by endpoint and IP."""
+    """Lightweight in-memory fixed-window limiter keyed by endpoint and IP.
+
+    WARNING: This limiter is process-local. In multi-worker deployments
+    (e.g. uvicorn --workers N) each worker maintains its own counter, so the
+    effective limit is RATE_LIMIT_PER_MINUTE × num_workers.  For production
+    deployments with multiple workers, replace this with a shared backend such
+    as Redis (e.g. slowapi + redis).
+    """
 
     def __init__(self) -> None:
         self._requests: dict[str, deque[float]] = defaultdict(deque)

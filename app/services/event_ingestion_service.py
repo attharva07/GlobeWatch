@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
-from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent, ProviderRateLimitError
+from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent, ProviderNetworkError, ProviderRateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,18 @@ class EventIngestionService:
                 "rate_limited": True,
                 "data_mode": "cached",
             }
+        except ProviderNetworkError:
+            logger.warning(
+                "Ingestion skipped due to network error; retaining cached database data",
+                extra={"provider": self.settings.INGESTION_PROVIDER, "data_mode": "cached", "rate_limited": False},
+            )
+            return {
+                "provider": self.settings.INGESTION_PROVIDER,
+                "created": 0,
+                "updated": 0,
+                "rate_limited": False,
+                "data_mode": "cached",
+            }
         created = 0
         updated = 0
         seen_external_ids: set[str] = set()
@@ -48,7 +60,7 @@ class EventIngestionService:
             fingerprint = self._fingerprint(incoming)
             existing = self.repo.find_by_external_id_or_fingerprint(incoming.external_id, fingerprint)
             if not existing and ((incoming.external_id and incoming.external_id in seen_external_ids) or fingerprint in seen_fingerprints):
-                updated += 1
+                # Duplicate within this batch — skip without counting as created or updated
                 continue
             metadata_json = dict(incoming.metadata)
             metadata_json["provider"] = incoming.provider

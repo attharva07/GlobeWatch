@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Cartesian2,
   Cartesian3,
@@ -24,6 +24,14 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
+  // Store the latest callback in a ref so the Cesium click handler never becomes stale
+  // without causing the viewer to be torn down and recreated on every render.
+  const onSelectMarkerRef = useRef(onSelectMarker);
+  useEffect(() => { onSelectMarkerRef.current = onSelectMarker; }, [onSelectMarker]);
+
+  const stableOnSelect = useCallback((marker: RegionMarker | null) => {
+    onSelectMarkerRef.current(marker);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || viewerRef.current) return;
@@ -70,7 +78,7 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
         return;
       }
       const marker = pickedObject.id.properties?.marker?.getValue();
-      onSelectMarker((marker as RegionMarker) ?? null);
+      stableOnSelect((marker as RegionMarker) ?? null);
     }, ScreenSpaceEventType.LEFT_CLICK);
 
     viewerRef.current = viewer;
@@ -82,7 +90,7 @@ export function GlobeViewer({ markers, selectedMarkerId, onSelectMarker }: Globe
       handlerRef.current = null;
       viewerRef.current = null;
     };
-  }, [onSelectMarker]);
+  }, [stableOnSelect]);
 
   useEffect(() => {
     const viewer = viewerRef.current;

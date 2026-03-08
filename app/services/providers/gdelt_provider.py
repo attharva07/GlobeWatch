@@ -15,6 +15,10 @@ class ProviderRateLimitError(Exception):
     """Raised when provider responds with HTTP 429."""
 
 
+class ProviderNetworkError(Exception):
+    """Raised when a network/transport-level failure prevents fetching events."""
+
+
 @dataclass
 class ProviderEvent:
     external_id: str | None
@@ -54,7 +58,9 @@ class GDELTProvider:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise ProviderRateLimitError("GDELT rate limit reached (HTTP 429)") from exc
-            raise
+            raise ProviderNetworkError(f"GDELT request failed with HTTP {exc.response.status_code}") from exc
+        except httpx.TransportError as exc:
+            raise ProviderNetworkError(f"GDELT network error: {exc}") from exc
 
         articles = payload.get("articles", []) if isinstance(payload, dict) else []
         normalized: list[ProviderEvent] = []
@@ -84,7 +90,7 @@ class GDELTProvider:
                 ProviderEvent(
                     external_id=self._external_id(url, item),
                     title=title,
-                    description=str(item.get("socialimage") or item.get("title") or "").strip() or title,
+                    description=title,
                     category=category,
                     source=source_name,
                     provider="gdelt",

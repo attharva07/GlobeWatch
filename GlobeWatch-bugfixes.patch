@@ -1,0 +1,390 @@
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/main.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/main.py	2026-03-08 18:34:37.684645746 +0000
+@@ -5,6 +5,7 @@
+ import asyncio
+ import contextlib
+ import logging
++from collections.abc import AsyncGenerator
+ 
+ from fastapi import Depends, FastAPI, HTTPException, Request
+ from fastapi.exceptions import RequestValidationError
+@@ -27,11 +28,64 @@
+ logger = logging.getLogger(__name__)
+ 
+ 
++async def ingestion_loop(app_settings: Settings, initial_delay_seconds: int = 0) -> None:
++    """Periodic background task that ingests events from the configured provider."""
++    if initial_delay_seconds > 0:
++        await asyncio.sleep(initial_delay_seconds)
++
++    while True:
++        db = next(get_db_session())
++        try:
++            EventIngestionService(db, app_settings).ingest()
++        except Exception:
++            logger.exception("Ingestion cycle failed")
++        finally:
++            db.close()
++        await asyncio.sleep(app_settings.INGESTION_INTERVAL_SECONDS)
++
++
+ def create_app(app_settings: Settings) -> FastAPI:
++    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
++        logger.info("Starting service", extra={"path": "startup", "client_ip": "-"})
++        Base.metadata.create_all(bind=engine)
++        startup_ingestion_attempted = False
++        db = next(get_db_session())
++        try:
++            news_service = NewsService(db, app_settings)
++            news_service.seed_if_empty()
++            if (
++                app_settings.ENVIRONMENT != "test"
++                and app_settings.INGESTION_ENABLED
++                and app_settings.INGESTION_PROVIDER
++                and app_settings.INGESTION_STARTUP_RUN
++            ):
++                startup_ingestion_attempted = True
++                try:
++                    EventIngestionService(db, app_settings).ingest()
++                except Exception:
++                    logger.exception("Startup ingestion cycle failed")
++        finally:
++            db.close()
++
++        ingestion_task: asyncio.Task[None] | None = None
++        if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_ENABLED and app_settings.INGESTION_PROVIDER:
++            initial_delay = app_settings.INGESTION_INTERVAL_SECONDS if startup_ingestion_attempted else 0
++            ingestion_task = asyncio.create_task(ingestion_loop(app_settings, initial_delay_seconds=initial_delay))
++
++        logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
++        yield
++
++        if ingestion_task:
++            ingestion_task.cancel()
++            with contextlib.suppress(asyncio.CancelledError):
++                await ingestion_task
++        logger.info("Shutting down service", extra={"path": "shutdown", "client_ip": "-"})
++
+     app = FastAPI(
+         title=app_settings.APP_NAME,
+         version=app_settings.APP_VERSION,
+         debug=bool(app_settings.DEBUG and app_settings.ENVIRONMENT != "production"),
++        lifespan=lifespan,
+     )
+ 
+     app.add_middleware(
+@@ -50,7 +104,10 @@
+         response.headers["Referrer-Policy"] = "no-referrer"
+         response.headers["X-XSS-Protection"] = "1; mode=block"
+         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+-        response.headers["Cache-Control"] = "no-store"
++        # Apply no-store only to API data endpoints, not to health/static routes
++        # that benefit from proxy/CDN caching.
++        if request.url.path.startswith(app_settings.API_PREFIX):
++            response.headers["Cache-Control"] = "no-store"
+         return response
+ 
+     @app.exception_handler(RequestValidationError)
+@@ -69,57 +126,6 @@
+             content["error_type"] = exc.__class__.__name__
+         return JSONResponse(status_code=500, content=content)
+ 
+-    async def ingestion_loop(initial_delay_seconds: int = 0) -> None:
+-        if initial_delay_seconds > 0:
+-            await asyncio.sleep(initial_delay_seconds)
+-
+-        while True:
+-            db = next(get_db_session())
+-            try:
+-                EventIngestionService(db, app_settings).ingest()
+-            except Exception:
+-                logger.exception("Ingestion cycle failed")
+-            finally:
+-                db.close()
+-            await asyncio.sleep(app_settings.INGESTION_INTERVAL_SECONDS)
+-
+-    @app.on_event("startup")
+-    async def startup_event() -> None:
+-        logger.info("Starting service", extra={"path": "startup", "client_ip": "-"})
+-        Base.metadata.create_all(bind=engine)
+-        startup_ingestion_attempted = False
+-        db = next(get_db_session())
+-        try:
+-            news_service = NewsService(db, app_settings)
+-            news_service.seed_if_empty()
+-            if (
+-                app_settings.ENVIRONMENT != "test"
+-                and app_settings.INGESTION_ENABLED
+-                and app_settings.INGESTION_PROVIDER
+-                and app_settings.INGESTION_STARTUP_RUN
+-            ):
+-                startup_ingestion_attempted = True
+-                try:
+-                    EventIngestionService(db, app_settings).ingest()
+-                except Exception:
+-                    logger.exception("Startup ingestion cycle failed")
+-        finally:
+-            db.close()
+-
+-        if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_ENABLED and app_settings.INGESTION_PROVIDER:
+-            initial_delay = app_settings.INGESTION_INTERVAL_SECONDS if startup_ingestion_attempted else 0
+-            app.state.ingestion_task = asyncio.create_task(ingestion_loop(initial_delay_seconds=initial_delay))
+-        logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
+-
+-    @app.on_event("shutdown")
+-    async def shutdown_event() -> None:
+-        task = getattr(app.state, "ingestion_task", None)
+-        if task:
+-            task.cancel()
+-            with contextlib.suppress(asyncio.CancelledError):
+-                await task
+-        logger.info("Shutting down service", extra={"path": "shutdown", "client_ip": "-"})
+-
+     app.include_router(health.router, dependencies=[Depends(optional_api_key_guard)])
+     app.include_router(news.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
+     app.include_router(globe.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/services/region_service.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/services/region_service.py	2026-03-08 18:33:57.218256835 +0000
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import math
+ from collections import Counter, defaultdict
+ 
+ from app.models.event import Event
+@@ -21,8 +22,7 @@
+ 
+         regions: list[dict[str, object]] = []
+         for region_id, region_events in grouped.items():
+-            total_lat = sum(event.lat for event in region_events)
+-            total_lon = sum(event.lon for event in region_events)
++            centroid_lat, centroid_lon = self._safe_centroid(region_events)
+             categories = Counter(event.category for event in region_events)
+             max_severity = self._aggregate_severity([event.severity for event in region_events])
+ 
+@@ -30,8 +30,8 @@
+                 {
+                     "region_id": region_id,
+                     "region_name": region_events[0].country,
+-                    "lat": total_lat / len(region_events),
+-                    "lon": total_lon / len(region_events),
++                    "lat": centroid_lat,
++                    "lon": centroid_lon,
+                     "event_count": len(region_events),
+                     "top_categories": [name for name, _ in categories.most_common(3)],
+                     "severity": max_severity,
+@@ -41,7 +41,27 @@
+         return sorted(regions, key=lambda item: int(item["event_count"]), reverse=True)
+ 
+     def region_events(self, region_id: str, limit: int = 200) -> list[Event]:
+-        return list(self.repo.list_events_by_country(region_id, limit=limit))
++        # Normalise to lowercase so both "United States" and "united states" resolve correctly
++        return list(self.repo.list_events_by_country(region_id.strip().lower(), limit=limit))
++
++    @staticmethod
++    def _safe_centroid(events: list[Event]) -> tuple[float, float]:
++        """Compute a centroid that is safe across the antimeridian (±180° lon).
++
++        Uses the unit-vector averaging method on the longitude so that regions
++        straddling the antimeridian (e.g. Russia, Fiji) produce a correct
++        centroid rather than collapsing to ~0° longitude.
++        """
++        n = len(events)
++        # Latitude: plain average is fine (no wrap-around issue)
++        avg_lat = sum(e.lat for e in events) / n
++
++        # Longitude: project onto unit circle, average, then atan2 back
++        sin_sum = sum(math.sin(math.radians(e.lon)) for e in events)
++        cos_sum = sum(math.cos(math.radians(e.lon)) for e in events)
++        avg_lon = math.degrees(math.atan2(sin_sum / n, cos_sum / n))
++
++        return round(avg_lat, 6), round(avg_lon, 6)
+ 
+     @staticmethod
+     def _aggregate_severity(severities: list[str]) -> str:
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/services/event_ingestion_service.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/services/event_ingestion_service.py	2026-03-08 18:33:38.502076959 +0000
+@@ -11,7 +11,7 @@
+ from app.core.config import Settings
+ from app.models.event import Event
+ from app.repositories.event_repository import EventRepository
+-from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent, ProviderRateLimitError
++from app.services.providers.gdelt_provider import GDELTProvider, ProviderEvent, ProviderNetworkError, ProviderRateLimitError
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -39,6 +39,18 @@
+                 "rate_limited": True,
+                 "data_mode": "cached",
+             }
++        except ProviderNetworkError:
++            logger.warning(
++                "Ingestion skipped due to network error; retaining cached database data",
++                extra={"provider": self.settings.INGESTION_PROVIDER, "data_mode": "cached", "rate_limited": False},
++            )
++            return {
++                "provider": self.settings.INGESTION_PROVIDER,
++                "created": 0,
++                "updated": 0,
++                "rate_limited": False,
++                "data_mode": "cached",
++            }
+         created = 0
+         updated = 0
+         seen_external_ids: set[str] = set()
+@@ -48,7 +60,7 @@
+             fingerprint = self._fingerprint(incoming)
+             existing = self.repo.find_by_external_id_or_fingerprint(incoming.external_id, fingerprint)
+             if not existing and ((incoming.external_id and incoming.external_id in seen_external_ids) or fingerprint in seen_fingerprints):
+-                updated += 1
++                # Duplicate within this batch — skip without counting as created or updated
+                 continue
+             metadata_json = dict(incoming.metadata)
+             metadata_json["provider"] = incoming.provider
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/services/providers/gdelt_provider.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/services/providers/gdelt_provider.py	2026-03-08 18:33:25.639953345 +0000
+@@ -15,6 +15,10 @@
+     """Raised when provider responds with HTTP 429."""
+ 
+ 
++class ProviderNetworkError(Exception):
++    """Raised when a network/transport-level failure prevents fetching events."""
++
++
+ @dataclass
+ class ProviderEvent:
+     external_id: str | None
+@@ -54,7 +58,9 @@
+         except httpx.HTTPStatusError as exc:
+             if exc.response.status_code == 429:
+                 raise ProviderRateLimitError("GDELT rate limit reached (HTTP 429)") from exc
+-            raise
++            raise ProviderNetworkError(f"GDELT request failed with HTTP {exc.response.status_code}") from exc
++        except httpx.TransportError as exc:
++            raise ProviderNetworkError(f"GDELT network error: {exc}") from exc
+ 
+         articles = payload.get("articles", []) if isinstance(payload, dict) else []
+         normalized: list[ProviderEvent] = []
+@@ -84,7 +90,7 @@
+                 ProviderEvent(
+                     external_id=self._external_id(url, item),
+                     title=title,
+-                    description=str(item.get("socialimage") or item.get("title") or "").strip() or title,
++                    description=title,
+                     category=category,
+                     source=source_name,
+                     provider="gdelt",
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/repositories/event_repository.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/repositories/event_repository.py	2026-03-08 18:32:58.442691959 +0000
+@@ -4,7 +4,7 @@
+ 
+ from collections.abc import Sequence
+ 
+-from sqlalchemy import Select, desc, select
++from sqlalchemy import Select, desc, func, select
+ from sqlalchemy.orm import Session
+ 
+ from app.models.event import Event
+@@ -40,7 +40,7 @@
+         return self.db.execute(query).scalars().all()
+ 
+     def count(self) -> int:
+-        return len(self.db.execute(select(Event.id)).scalars().all())
++        return self.db.execute(select(func.count()).select_from(Event)).scalar_one()
+ 
+     def add_many(self, events: list[Event]) -> None:
+         self.db.add_all(events)
+--- /home/claude/GlobeWatch/GlobeWatch-main/app/core/security.py	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/app/core/security.py	2026-03-08 18:34:44.675712935 +0000
+@@ -14,7 +14,14 @@
+ 
+ 
+ class InMemoryRateLimiter:
+-    """Lightweight in-memory fixed-window limiter keyed by endpoint and IP."""
++    """Lightweight in-memory fixed-window limiter keyed by endpoint and IP.
++
++    WARNING: This limiter is process-local. In multi-worker deployments
++    (e.g. uvicorn --workers N) each worker maintains its own counter, so the
++    effective limit is RATE_LIMIT_PER_MINUTE × num_workers.  For production
++    deployments with multiple workers, replace this with a shared backend such
++    as Redis (e.g. slowapi + redis).
++    """
+ 
+     def __init__(self) -> None:
+         self._requests: dict[str, deque[float]] = defaultdict(deque)
+--- /home/claude/GlobeWatch/GlobeWatch-main/frontend/src/components/GlobeViewer.tsx	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/frontend/src/components/GlobeViewer.tsx	2026-03-08 18:35:02.899888083 +0000
+@@ -1,4 +1,4 @@
+-import { useEffect, useRef } from 'react';
++import { useCallback, useEffect, useRef } from 'react';
+ import {
+   Cartesian2,
+   Cartesian3,
+@@ -24,6 +24,14 @@
+   const containerRef = useRef<HTMLDivElement | null>(null);
+   const viewerRef = useRef<Viewer | null>(null);
+   const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
++  // Store the latest callback in a ref so the Cesium click handler never becomes stale
++  // without causing the viewer to be torn down and recreated on every render.
++  const onSelectMarkerRef = useRef(onSelectMarker);
++  useEffect(() => { onSelectMarkerRef.current = onSelectMarker; }, [onSelectMarker]);
++
++  const stableOnSelect = useCallback((marker: RegionMarker | null) => {
++    onSelectMarkerRef.current(marker);
++  }, []);
+ 
+   useEffect(() => {
+     if (!containerRef.current || viewerRef.current) return;
+@@ -70,7 +78,7 @@
+         return;
+       }
+       const marker = pickedObject.id.properties?.marker?.getValue();
+-      onSelectMarker((marker as RegionMarker) ?? null);
++      stableOnSelect((marker as RegionMarker) ?? null);
+     }, ScreenSpaceEventType.LEFT_CLICK);
+ 
+     viewerRef.current = viewer;
+@@ -82,7 +90,7 @@
+       handlerRef.current = null;
+       viewerRef.current = null;
+     };
+-  }, [onSelectMarker]);
++  }, [stableOnSelect]);
+ 
+   useEffect(() => {
+     const viewer = viewerRef.current;
+--- /home/claude/GlobeWatch/GlobeWatch-main/frontend/src/pages/Dashboard.tsx	2026-03-08 18:10:00.000000000 +0000
++++ /home/claude/GlobeWatch-fixed/frontend/src/pages/Dashboard.tsx	2026-03-08 18:35:12.518980530 +0000
+@@ -12,16 +12,22 @@
+   const [newsEnabled, setNewsEnabled] = useState(true);
+   const [selectedMarker, setSelectedMarker] = useState<RegionMarker | null>(null);
+   const [events, setEvents] = useState<RegionEvent[]>([]);
++  const [eventsError, setEventsError] = useState<string | null>(null);
+   const { markers, markerCount, loading, error, refresh } = useMarkers(newsEnabled);
+ 
+   useEffect(() => {
+     if (!selectedMarker) {
+       setEvents([]);
++      setEventsError(null);
+       return;
+     }
++    setEventsError(null);
+     fetchRegionEvents(selectedMarker.region_id)
+       .then((response) => setEvents(response.events))
+-      .catch(() => setEvents([]));
++      .catch((err: unknown) => {
++        setEvents([]);
++        setEventsError(err instanceof Error ? err.message : 'Failed to load region events.');
++      });
+   }, [selectedMarker]);
+ 
+   return (
+@@ -29,6 +35,7 @@
+       <GlobeViewer markers={markers} selectedMarkerId={selectedMarker?.region_id ?? null} onSelectMarker={setSelectedMarker} />
+       {loading && <LoadingOverlay />}
+       {error && <ErrorBanner message={error} />}
++      {eventsError && <ErrorBanner message={eventsError} />}
+ 
+       {!loading && !error && markers.length === 0 && <div className="empty-state">No region markers returned from backend.</div>}
+ 

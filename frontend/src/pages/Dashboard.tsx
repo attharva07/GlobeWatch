@@ -12,16 +12,22 @@ export function Dashboard() {
   const [newsEnabled, setNewsEnabled] = useState(true);
   const [selectedMarker, setSelectedMarker] = useState<RegionMarker | null>(null);
   const [events, setEvents] = useState<RegionEvent[]>([]);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const { markers, markerCount, loading, error, refresh } = useMarkers(newsEnabled);
 
   useEffect(() => {
     if (!selectedMarker) {
       setEvents([]);
+      setEventsError(null);
       return;
     }
+    setEventsError(null);
     fetchRegionEvents(selectedMarker.region_id)
       .then((response) => setEvents(response.events))
-      .catch(() => setEvents([]));
+      .catch((err: unknown) => {
+        setEvents([]);
+        setEventsError(err instanceof Error ? err.message : 'Failed to load region events.');
+      });
   }, [selectedMarker]);
 
   return (
@@ -29,6 +35,7 @@ export function Dashboard() {
       <GlobeViewer markers={markers} selectedMarkerId={selectedMarker?.region_id ?? null} onSelectMarker={setSelectedMarker} />
       {loading && <LoadingOverlay />}
       {error && <ErrorBanner message={error} />}
+      {eventsError && <ErrorBanner message={eventsError} />}
 
       {!loading && !error && markers.length === 0 && <div className="empty-state">No region markers returned from backend.</div>}
 

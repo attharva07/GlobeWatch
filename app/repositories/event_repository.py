@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import Select, desc, select
+from sqlalchemy import Select, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.models.event import Event
@@ -40,7 +40,7 @@ class EventRepository:
         return self.db.execute(query).scalars().all()
 
     def count(self) -> int:
-        return len(self.db.execute(select(Event.id)).scalars().all())
+        return self.db.execute(select(func.count()).select_from(Event)).scalar_one()
 
     def add_many(self, events: list[Event]) -> None:
         self.db.add_all(events)
