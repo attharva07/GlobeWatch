@@ -9,17 +9,37 @@ interface LayerControlsProps {
 export function LayerControls({ newsEnabled, markerCount, onToggleNews, onRefresh, loading }: LayerControlsProps) {
   return (
     <section className="layer-controls">
-      <h2>Layers</h2>
-      <label className="toggle-row">
-        <input type="checkbox" checked={newsEnabled} onChange={onToggleNews} />
-        <span>News</span>
-      </label>
+      <div className="panel-header">
+        <div className="panel-header-icon" />
+        <span className="panel-header-label">Layers</span>
+      </div>
+      <div className="panel-body">
+        <label className="toggle-row">
+          <span className="toggle-label">News Events</span>
+          <div className="toggle-switch">
+            <input type="checkbox" checked={newsEnabled} onChange={onToggleNews} />
+            <div className="toggle-track" />
+            <div className="toggle-thumb" />
+          </div>
+        </label>
 
-      <button type="button" className="refresh-button" onClick={onRefresh} disabled={loading}>
-        {loading ? 'Refreshing…' : 'Refresh feed'}
-      </button>
+        <button type="button" className="refresh-button" onClick={onRefresh} disabled={loading}>
+          <span className="refresh-icon">↻</span>
+          {loading ? 'Syncing...' : 'Refresh Feed'}
+        </button>
 
-      <p className="marker-count">Markers: {markerCount}</p>
+        <div className="marker-count-row">
+          <span className="marker-count-label">Regions Active</span>
+          <span className="marker-count-value">{markerCount}</span>
+        </div>
+
+        <div className="severity-legend">
+          <div className="severity-legend-title">Severity</div>
+          <div className="severity-item"><div className="severity-dot high" /> High Risk</div>
+          <div className="severity-item"><div className="severity-dot medium" /> Medium Risk</div>
+          <div className="severity-item"><div className="severity-dot low" /> Low Risk</div>
+        </div>
+      </div>
     </section>
   );
 }

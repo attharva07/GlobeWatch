@@ -5,7 +5,8 @@ interface ErrorBannerProps {
 export function ErrorBanner({ message }: ErrorBannerProps) {
   return (
     <div className="error-banner" role="alert">
-      <strong>Backend connection issue:</strong> {message}
+      <span className="error-icon">⚠</span>
+      <span>{message}</span>
     </div>
   );
 }
