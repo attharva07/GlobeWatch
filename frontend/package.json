@@ -1,7 +1,7 @@
 {
   "name": "globewatch-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,14 @@
     "lint": "eslint . --ext ts,tsx --max-warnings 0"
   },
   "dependencies": {
-    "cesium": "^1.118.2",
+    "@deck.gl/core": "^9.1.0",
+    "@deck.gl/layers": "^9.1.0",
+    "@deck.gl/aggregation-layers": "^9.1.0",
+    "@deck.gl/geo-layers": "^9.1.0",
+    "@deck.gl/mesh-layers": "^9.1.0",
+    "@deck.gl/react": "^9.1.0",
+    "@loaders.gl/obj": "^4.3.0",
+    "maplibre-gl": "^4.7.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -22,7 +29,6 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "typescript": "^5.5.4",
-    "vite": "^5.4.1",
-    "vite-plugin-static-copy": "^1.0.6"
+    "vite": "^5.4.1"
   }
 }

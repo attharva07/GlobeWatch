@@ -1,5 +1,5 @@
 import type { RegionEvent, RegionMarker } from '../types/marker';
-import { formatTimestamp } from '../lib/cesium';
+import { formatTimestamp } from '../lib/colors';
 
 interface MarkerPanelProps {
   marker: RegionMarker | null;

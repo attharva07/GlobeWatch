@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
-    ENABLE_MOCK_SEED: bool = False
+    ENABLE_MOCK_SEED: bool = True
     INGESTION_PROVIDER: str = "gdelt"
     INGESTION_ENABLED: bool = True
     INGESTION_INTERVAL_SECONDS: int = 900
