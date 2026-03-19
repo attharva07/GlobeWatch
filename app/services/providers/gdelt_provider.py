@@ -223,6 +223,11 @@ class GDELTProvider:
             if not isinstance(item, dict):
                 continue
 
+            # Filter to English-language articles only.
+            language = str(item.get("language") or "").strip().lower()
+            if not language.startswith("english"):
+                continue
+
             # Resolve coordinates from sourcecountry FIPS code.
             # The DOC 2.0 ArtList response does NOT include locationlat/locationlong —
             # those only exist in the GEO 2.0 API. We use a centroid lookup instead.
