@@ -47,10 +47,18 @@ html, body, #root {
   background: radial-gradient(ellipse at 30% 20%, #0d1f3c 0%, #060c14 50%, #020408 100%);
 }
 
-.globe-viewer,
-.globe-viewer .cesium-widget,
-.globe-viewer .cesium-widget canvas {
+.globe-viewer {
   display: block; width: 100%; height: 100%;
+  position: absolute; inset: 0;
+}
+
+.globe-viewer canvas {
+  display: block; width: 100%; height: 100%;
+}
+
+.layer-icon {
+  font-size: 13px;
+  margin-right: 2px;
 }
 
 /* TOP BAR */

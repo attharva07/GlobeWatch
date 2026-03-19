@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import 'cesium/Build/Cesium/Widgets/widgets.css';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import App from './App';
 import './styles/globals.css';
 

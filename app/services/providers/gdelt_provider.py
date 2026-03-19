@@ -223,10 +223,10 @@ class GDELTProvider:
             if not isinstance(item, dict):
                 continue
 
-            # Filter to English-language articles only.
-            language = str(item.get("language") or "").strip().lower()
-            if not language.startswith("english"):
-                continue
+            # Accept articles in any language to ensure global coverage.
+            # Previously only English articles were accepted, which dropped
+            # most non-English-source events and left large regions empty.
+            language = str(item.get("language") or "").strip()
 
             # Resolve coordinates from sourcecountry FIPS code.
             # The DOC 2.0 ArtList response does NOT include locationlat/locationlong —
@@ -263,7 +263,7 @@ class GDELTProvider:
                     url=str(url).strip() if isinstance(url, str) and url.strip() else None,
                     metadata={
                         "tone": item.get("tone"),
-                        "language": item.get("language"),
+                        "language": language,
                         "socialimage": item.get("socialimage"),
                         "fips_country": fips_code,
                     },
