@@ -61,6 +61,31 @@ html, body, #root {
   margin-right: 2px;
 }
 
+/* deck.gl tooltip */
+.deck-tooltip {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  background: var(--panel-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-mid) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px 10px !important;
+  backdrop-filter: var(--panel-blur);
+  white-space: pre-line !important;
+  pointer-events: none;
+  max-width: 280px;
+}
+
+/* Ensure deck.gl fills container */
+.globe-viewer > div {
+  position: absolute !important;
+  inset: 0 !important;
+}
+
+.globe-viewer .maplibregl-canvas {
+  outline: none;
+}
+
 /* TOP BAR */
 .top-bar {
   position: absolute;
