@@ -29,7 +29,7 @@ class RegionService:
             regions.append(
                 {
                     "region_id": region_id,
-                    "region_name": region_events[0].country,
+                    "region_name": region_events[0].country or region_id,
                     "lat": centroid_lat,
                     "lon": centroid_lon,
                     "event_count": len(region_events),

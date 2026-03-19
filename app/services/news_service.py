@@ -40,9 +40,9 @@ class NewsService:
             [
                 Event(
                     external_id="mock-paris-001",
-                    title="Transport strike updates in central Paris",
+                    title="Protest march updates in central Paris",
                     description="Public transit delays reported as unions stage a one-day strike.",
-                    category="transport",
+                    category="civic",
                     source="internal-seed",
                     lat=48.8566,
                     lon=2.3522,
@@ -51,6 +51,34 @@ class NewsService:
                     country="France",
                     city="Paris",
                     metadata_json={"provider": "mock", "tags": ["transit", "strike"], "language": "en"},
-                )
+                ),
+                Event(
+                    external_id="mock-us-001",
+                    title="Wildfire spreading across southern California",
+                    description="Firefighters battle a fast-moving wildfire near Los Angeles.",
+                    category="weather_alert",
+                    source="internal-seed",
+                    lat=34.0522,
+                    lon=-118.2437,
+                    severity="high",
+                    event_timestamp=now,
+                    country="United States",
+                    city="Los Angeles",
+                    metadata_json={"provider": "mock", "tags": ["wildfire", "california"], "language": "en"},
+                ),
+                Event(
+                    external_id="mock-uk-001",
+                    title="Flood warning issued for London and southeast England",
+                    description="Heavy rainfall expected to cause flooding in low-lying areas.",
+                    category="weather_alert",
+                    source="internal-seed",
+                    lat=51.5074,
+                    lon=-0.1278,
+                    severity="high",
+                    event_timestamp=now,
+                    country="United Kingdom",
+                    city="London",
+                    metadata_json={"provider": "mock", "tags": ["flood", "weather"], "language": "en"},
+                ),
             ]
         )

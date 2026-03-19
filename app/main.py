@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import cameras, flights, globe, health, locations, news, weather
+from app.api.routes import cameras, flights, globe, health, layers, locations, news, weather
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.core.logging import setup_logging
@@ -133,6 +133,7 @@ def create_app(app_settings: Settings) -> FastAPI:
     app.include_router(weather.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     app.include_router(flights.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     app.include_router(cameras.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
+    app.include_router(layers.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     return app
 
 
