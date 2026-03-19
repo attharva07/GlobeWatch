@@ -60,7 +60,8 @@ class EventIngestionService:
             fingerprint = self._fingerprint(incoming)
             existing = self.repo.find_by_external_id_or_fingerprint(incoming.external_id, fingerprint)
             if not existing and ((incoming.external_id and incoming.external_id in seen_external_ids) or fingerprint in seen_fingerprints):
-                # Duplicate within this batch — skip without counting as created or updated
+                # Duplicate within this batch — count as updated (already ingested earlier in this cycle)
+                updated += 1
                 continue
             metadata_json = dict(incoming.metadata)
             metadata_json["provider"] = incoming.provider
