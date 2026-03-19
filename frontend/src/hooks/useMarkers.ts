@@ -52,6 +52,6 @@ export function useMarkers(enabled: boolean): UseMarkersResult {
 
   return useMemo(
     () => ({ markers, markerCount: markers.length, loading, error, refresh: loadMarkers }),
-    [markers, loading, error, loadMarkers]
+    [markers, loading, error, loadMarkers, enabled]
   );
 }
