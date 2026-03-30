@@ -45,15 +45,50 @@ class Settings(BaseSettings):
     GDELT_QUERY: str = "(flood OR wildfire OR earthquake OR outbreak OR protest)"
     GDELT_MAX_RECORDS: int = 50
 
-    # Live provider flags (all optional / free-tier)
-    OPENSKY_ENABLED: bool = True
-    OPENSKY_USERNAME: str = ""
-    OPENSKY_PASSWORD: str = ""
+    # ------------------------------------------------------------------ #
+    # OpenSky — live flight tracking                                       #
+    # ------------------------------------------------------------------ #
+    OPENSKY_ENABLED: bool = False
+    OPENSKY_CLIENT_ID: str = ""
+    OPENSKY_CLIENT_SECRET: str = ""
+    OPENSKY_USERNAME: str = ""        # legacy, no longer used by API
+    OPENSKY_PASSWORD: str = ""        # legacy, no longer used by API
+    OPENSKY_INTERVAL_SECONDS: int = 60
+    OPENSKY_MAX_AIRCRAFT: int = 500
+
+    # ------------------------------------------------------------------ #
+    # AIS — live ship tracking                                             #
+    # ------------------------------------------------------------------ #
+    AIS_ENABLED: bool = False
+    AIS_INTERVAL_SECONDS: int = 120
+    AIS_MAX_VESSELS: int = 300
     AISHUB_USERNAME: str = ""
+
+    # ------------------------------------------------------------------ #
+    # Satellites — Celestrak TLE propagation                              #
+    # ------------------------------------------------------------------ #
+    CELESTRAK_ENABLED: bool = False
+    SATELLITE_ENABLED: bool = False
+    SATELLITE_INTERVAL_SECONDS: int = 300
+
+    # ------------------------------------------------------------------ #
+    # Conflicts — UCDP armed conflict data                                 #
+    # ------------------------------------------------------------------ #
+    UCDP_ENABLED: bool = False
+    UCDP_INTERVAL_SECONDS: int = 3600
+
+    # ------------------------------------------------------------------ #
+    # Threat intel                                                         #
+    # ------------------------------------------------------------------ #
+    THREAT_INTEL_ENABLED: bool = False
+
+    # ------------------------------------------------------------------ #
+    # ACLED — Armed Conflict Location & Event Data                         #
+    # ------------------------------------------------------------------ #
     ACLED_API_KEY: str = ""
     ACLED_EMAIL: str = ""
-    CELESTRAK_ENABLED: bool = True
-    THREAT_INTEL_ENABLED: bool = True
+
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _parse_list_like_env(value: object) -> list[str]:
