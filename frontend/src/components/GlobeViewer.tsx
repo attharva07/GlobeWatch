@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import { Deck, MapView } from '@deck.gl/core';
+import { Deck, MapView, FlyToInterpolator } from '@deck.gl/core';
 import { ScatterplotLayer, ArcLayer, PathLayer, IconLayer, GeoJsonLayer, TextLayer } from '@deck.gl/layers';
 import { HeatmapLayer, HexagonLayer } from '@deck.gl/aggregation-layers';
 import { TripsLayer } from '@deck.gl/geo-layers';
@@ -27,6 +27,13 @@ const INITIAL_VIEW_STATE = {
 
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
+export interface FlyToTarget {
+  lat: number;
+  lon: number;
+  zoom: number;
+  key: number;
+}
+
 interface GlobeViewerProps {
   markers: RegionMarker[];
   selectedMarkerId: string | null;
@@ -39,6 +46,117 @@ interface GlobeViewerProps {
   satellites: SatelliteOrbit[];
   conflicts: ConflictZone[];
   entityLinks: EntityLink[];
+  flyToTarget: FlyToTarget | null;
+  severityFilter: 'all' | 'high' | 'medium' | 'low';
+}
+
+// Grid-based geographic clustering at low zoom levels
+type ClusterMarker = RegionMarker & { _clusterCount?: number };
+
+function clusterMarkers(markers: RegionMarker[], zoom: number): ClusterMarker[] {
+  if (zoom >= 2) return markers;
+
+  const gridSize = zoom < 1 ? 55 : 35;
+  const cells = new Map<string, RegionMarker[]>();
+
+  for (const m of markers) {
+    const cx = Math.floor((m.lon + 180) / gridSize);
+    const cy = Math.floor((m.lat + 90) / gridSize);
+    const key = `${cx},${cy}`;
+    const cell = cells.get(key) ?? [];
+    cell.push(m);
+    cells.set(key, cell);
+  }
+
+  return Array.from(cells.values()).flatMap((cell) => {
+    if (cell.length === 1) return cell;
+    const lat = cell.reduce((s, m) => s + m.lat, 0) / cell.length;
+    const lon = cell.reduce((s, m) => s + m.lon, 0) / cell.length;
+    const totalCount = cell.reduce((s, m) => s + m.event_count, 0);
+    const severity = cell.some((m) => m.severity === 'high')
+      ? 'high'
+      : cell.some((m) => m.severity === 'medium')
+        ? 'medium'
+        : 'low';
+    const allCats = cell.flatMap((m) => m.top_categories);
+    const catMap = new Map<string, number>();
+    for (const c of allCats) catMap.set(c, (catMap.get(c) ?? 0) + 1);
+    const top3 = [...catMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([c]) => c);
+    const cluster: ClusterMarker = {
+      region_id: `cluster-${cell.map((c) => c.region_id).join('-')}`,
+      region_name: `${cell.length} regions`,
+      lat,
+      lon,
+      event_count: totalCount,
+      top_categories: top3,
+      severity,
+      _clusterCount: cell.length,
+    };
+    return [cluster];
+  });
+}
+
+function buildTooltipHtml(obj: Record<string, unknown>): { html: string; style: Record<string, string> } | null {
+  if (obj.region_name) {
+    const m = obj as unknown as ClusterMarker;
+    const cats = m.top_categories
+      .slice(0, 3)
+      .map((c) => `<span class="tt-pill tt-pill-${c}">${c.replace('_', ' ')}</span>`)
+      .join('');
+    const clusterNote = m._clusterCount ? `<div class="tt-cluster">${m._clusterCount} countries</div>` : '';
+    return {
+      html: `
+        <div class="tt-card">
+          <div class="tt-region">${m.region_name}</div>
+          ${clusterNote}
+          <div class="tt-meta-row">
+            <span class="tt-severity tt-sev-${m.severity}">${m.severity.toUpperCase()}</span>
+            <span class="tt-count">${m.event_count} events</span>
+          </div>
+          ${cats ? `<div class="tt-cats">${cats}</div>` : ''}
+        </div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  if (obj.callsign) {
+    const f = obj as unknown as FlightTrack;
+    return {
+      html: `<div class="tt-card"><div class="tt-region">${f.callsign}</div><div class="tt-meta-row"><span class="tt-count">Alt: ${f.altitude}ft</span><span class="tt-count">Speed: ${f.speed}kts</span></div></div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  if (obj.mmsi) {
+    const s = obj as unknown as ShipTrack;
+    return {
+      html: `<div class="tt-card"><div class="tt-region">${s.name}</div><div class="tt-meta-row"><span class="tt-count">${s.ship_type}</span><span class="tt-count">→ ${s.destination}</span></div></div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  if (obj.threat_type) {
+    const c = obj as unknown as CyberIOC;
+    return {
+      html: `<div class="tt-card"><div class="tt-region">${c.ip}</div><div class="tt-meta-row"><span class="tt-severity tt-sev-${c.severity}">${c.threat_type}</span><span class="tt-count">${c.country}</span></div></div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  if (obj.norad_id) {
+    const sat = obj as unknown as SatelliteOrbit;
+    return {
+      html: `<div class="tt-card"><div class="tt-region">${sat.name}</div><div class="tt-meta-row"><span class="tt-count">NORAD: ${sat.norad_id}</span><span class="tt-count">${sat.orbit_type}</span></div></div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  if (obj.source_name) {
+    const e = obj as unknown as EntityLink;
+    return {
+      html: `<div class="tt-card"><div class="tt-region">${e.source_name} → ${e.target_name}</div><div class="tt-meta-row"><span class="tt-count">${e.relationship}</span></div></div>`,
+      style: { padding: '0', background: 'transparent', border: 'none' },
+    };
+  }
+  return null;
 }
 
 export function GlobeViewer({
@@ -53,12 +171,16 @@ export function GlobeViewer({
   satellites,
   conflicts,
   entityLinks,
+  flyToTarget,
+  severityFilter,
 }: GlobeViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deckRef = useRef<Deck<any> | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [pulsePhase, setPulsePhase] = useState(0);
+  const [viewZoom, setViewZoom] = useState(INITIAL_VIEW_STATE.zoom);
   const onSelectRef = useRef(onSelectMarker);
   onSelectRef.current = onSelectMarker;
 
@@ -67,7 +189,7 @@ export function GlobeViewer({
     [layerStates]
   );
 
-  // Animate satellite trips
+  // Satellite trip animation
   useEffect(() => {
     if (!isEnabled('satellites')) return;
     const interval = setInterval(() => {
@@ -76,12 +198,23 @@ export function GlobeViewer({
     return () => clearInterval(interval);
   }, [isEnabled]);
 
+  // Pulse animation via requestAnimationFrame
+  useEffect(() => {
+    if (!isEnabled('news')) return;
+    let frame: number;
+    const tick = () => {
+      setPulsePhase((p) => (p + 0.018) % 1);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isEnabled]);
+
   // Initialize MapLibre + Deck
   useEffect(() => {
     const el = containerRef.current;
     if (!el || mapRef.current) return;
 
-    // Create MapLibre map
     const map = new maplibregl.Map({
       container: el,
       style: MAP_STYLE,
@@ -89,12 +222,11 @@ export function GlobeViewer({
       zoom: INITIAL_VIEW_STATE.zoom,
       pitch: INITIAL_VIEW_STATE.pitch,
       bearing: INITIAL_VIEW_STATE.bearing,
-      interactive: false, // deck.gl controls interactions
+      interactive: false,
       attributionControl: false,
     });
     mapRef.current = map;
 
-    // Create deck.gl overlay canvas
     const deckCanvas = document.createElement('canvas');
     deckCanvas.id = 'deck-canvas';
     deckCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:1;';
@@ -108,32 +240,7 @@ export function GlobeViewer({
       layers: [],
       getTooltip: ({ object }: { object?: unknown }) => {
         if (!object || typeof object !== 'object') return null;
-        const obj = object as Record<string, unknown>;
-        if (obj.region_name) {
-          const m = obj as unknown as RegionMarker;
-          return `${m.region_name}\n${m.event_count} events (${m.severity})`;
-        }
-        if (obj.callsign) {
-          const f = obj as unknown as FlightTrack;
-          return `${f.callsign}\nAlt: ${f.altitude}ft  Speed: ${f.speed}kts`;
-        }
-        if (obj.mmsi) {
-          const s = obj as unknown as ShipTrack;
-          return `${s.name}\nType: ${s.ship_type}  Dest: ${s.destination}`;
-        }
-        if (obj.threat_type) {
-          const c = obj as unknown as CyberIOC;
-          return `${c.ip}\n${c.threat_type} (${c.severity})\n${c.country}`;
-        }
-        if (obj.norad_id) {
-          const sat = obj as unknown as SatelliteOrbit;
-          return `${sat.name}\nNORAD: ${sat.norad_id}\nOrbit: ${sat.orbit_type}`;
-        }
-        if (obj.source_name) {
-          const e = obj as unknown as EntityLink;
-          return `${e.source_name} → ${e.target_name}\n${e.relationship}`;
-        }
-        return null;
+        return buildTooltipHtml(object as Record<string, unknown>);
       },
       onClick: (info: { object?: unknown }) => {
         if (!info.object) {
@@ -142,6 +249,7 @@ export function GlobeViewer({
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onViewStateChange: ({ viewState }: any) => {
+        setViewZoom(viewState.zoom as number);
         map.jumpTo({
           center: [viewState.longitude, viewState.latitude],
           zoom: viewState.zoom,
@@ -160,65 +268,174 @@ export function GlobeViewer({
     };
   }, []);
 
-  // Build layers
+  // Programmatic fly-to when flyToTarget changes
+  useEffect(() => {
+    if (!flyToTarget || !deckRef.current) return;
+    deckRef.current.setProps({
+      initialViewState: {
+        longitude: flyToTarget.lon,
+        latitude: flyToTarget.lat,
+        zoom: flyToTarget.zoom,
+        pitch: flyToTarget.zoom > 3 ? 45 : 30,
+        bearing: 0,
+        transitionDuration: 1200,
+        transitionInterpolator: new FlyToInterpolator({ speed: 1.5 }),
+      },
+    });
+  }, [flyToTarget]);
+
+  // Filtered + clustered markers for rendering
+  const visibleMarkers = useMemo(() => {
+    const filtered =
+      severityFilter === 'all' ? markers : markers.filter((m) => m.severity === severityFilter);
+    return clusterMarkers(filtered, viewZoom);
+  }, [markers, severityFilter, viewZoom]);
+
+  // Build deck.gl layers
   const deckLayers = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any[] = [];
 
     // --- News Events ---
-    if (isEnabled('news') && markers.length > 0) {
+    if (isEnabled('news') && visibleMarkers.length > 0) {
+      const hasSelection = !!selectedMarkerId;
+
+      // Halo / pulse layer (rendered behind main markers)
+      result.push(
+        new ScatterplotLayer({
+          id: 'news-halo',
+          data: visibleMarkers,
+          pickable: false,
+          stroked: false,
+          filled: true,
+          radiusMinPixels: 0,
+          radiusMaxPixels: 80,
+          getPosition: (d: ClusterMarker) => [d.lon, d.lat],
+          getRadius: (d: ClusterMarker) => {
+            const speed = d.severity === 'high' ? 2.5 : d.severity === 'medium' ? 1.5 : 0.8;
+            const phase = (pulsePhase * speed) % 1;
+            const base = Math.max(10, Math.sqrt(d.event_count) * 6);
+            return base + phase * base * 0.9;
+          },
+          getFillColor: (d: ClusterMarker) => {
+            if (hasSelection && d.region_id !== selectedMarkerId) return [0, 0, 0, 0];
+            const speed = d.severity === 'high' ? 2.5 : d.severity === 'medium' ? 1.5 : 0.8;
+            const phase = (pulsePhase * speed) % 1;
+            const [r, g, b] = severityColor(d.severity);
+            return [r, g, b, Math.round((1 - phase) * 90)];
+          },
+          updateTriggers: {
+            getRadius: [pulsePhase],
+            getFillColor: [pulsePhase, selectedMarkerId],
+          },
+        })
+      );
+
+      // Main marker dots
       result.push(
         new ScatterplotLayer({
           id: 'news-markers',
-          data: markers,
+          data: visibleMarkers,
           pickable: true,
-          opacity: 0.9,
+          opacity: 1,
           stroked: true,
           filled: true,
           radiusScale: 1,
-          radiusMinPixels: 6,
-          radiusMaxPixels: 30,
+          radiusMinPixels: 5,
+          radiusMaxPixels: 32,
           lineWidthMinPixels: 1,
-          getPosition: (d: RegionMarker) => [d.lon, d.lat],
-          getRadius: (d: RegionMarker) => Math.max(8, Math.sqrt(d.event_count) * 5),
-          getFillColor: (d: RegionMarker) =>
-            d.region_id === selectedMarkerId
-              ? [255, 255, 255, 255]
-              : severityColor(d.severity),
-          getLineColor: (d: RegionMarker) => severityColor(d.severity),
-          getLineWidth: (d: RegionMarker) => (d.region_id === selectedMarkerId ? 3 : 1),
-          onClick: (info: { object?: RegionMarker }) => {
-            onSelectRef.current(info.object ?? null);
+          getPosition: (d: ClusterMarker) => [d.lon, d.lat],
+          getRadius: (d: ClusterMarker) => Math.max(8, Math.sqrt(d.event_count) * 5),
+          getFillColor: (d: ClusterMarker) => {
+            if (d.region_id === selectedMarkerId) return [255, 255, 255, 255];
+            if (hasSelection) return [...severityColor(d.severity).slice(0, 3), 50] as [number, number, number, number];
+            return severityColor(d.severity);
+          },
+          getLineColor: (d: ClusterMarker) => {
+            if (hasSelection && d.region_id !== selectedMarkerId) return [...severityColor(d.severity).slice(0, 3), 30] as [number, number, number, number];
+            return severityColor(d.severity);
+          },
+          getLineWidth: (d: ClusterMarker) => (d.region_id === selectedMarkerId ? 3 : 1),
+          onClick: (info: { object?: ClusterMarker }) => {
+            if (info.object) {
+              // If it's a cluster, zoom in to expand it; otherwise select
+              if (info.object._clusterCount && info.object._clusterCount > 1) {
+                onSelectRef.current(null);
+                if (deckRef.current) {
+                  deckRef.current.setProps({
+                    initialViewState: {
+                      longitude: info.object.lon,
+                      latitude: info.object.lat,
+                      zoom: 2.5,
+                      pitch: 35,
+                      bearing: 0,
+                      transitionDuration: 800,
+                      transitionInterpolator: new FlyToInterpolator({ speed: 1.5 }),
+                    },
+                  });
+                }
+              } else {
+                onSelectRef.current(info.object);
+              }
+            }
           },
           updateTriggers: {
             getFillColor: [selectedMarkerId],
+            getLineColor: [selectedMarkerId],
             getLineWidth: [selectedMarkerId],
           },
         })
       );
 
+      // Region name labels
       result.push(
         new TextLayer({
           id: 'news-labels',
-          data: markers,
+          data: visibleMarkers,
           pickable: false,
-          getPosition: (d: RegionMarker) => [d.lon, d.lat],
-          getText: (d: RegionMarker) => d.region_name,
-          getSize: 12,
-          getColor: (d: RegionMarker) =>
-            d.region_id === selectedMarkerId
-              ? [232, 240, 255, 255]
-              : [142, 168, 216, 200],
+          getPosition: (d: ClusterMarker) => [d.lon, d.lat],
+          getText: (d: ClusterMarker) => d.region_name,
+          getSize: 11,
+          getColor: (d: ClusterMarker) => {
+            if (d.region_id === selectedMarkerId) return [232, 240, 255, 255];
+            if (hasSelection) return [142, 168, 216, 60];
+            return [142, 168, 216, 200];
+          },
           getTextAnchor: 'middle',
           getAlignmentBaseline: 'bottom',
-          getPixelOffset: [0, -16],
+          getPixelOffset: [0, -14],
           fontFamily: '"Syne", sans-serif',
           fontWeight: 500,
           outlineColor: [2, 4, 8, 200],
           outlineWidth: 2,
-          updateTriggers: {
-            getColor: [selectedMarkerId],
+          updateTriggers: { getColor: [selectedMarkerId] },
+        })
+      );
+
+      // Event count badge
+      result.push(
+        new TextLayer({
+          id: 'news-counts',
+          data: visibleMarkers,
+          pickable: false,
+          getPosition: (d: ClusterMarker) => [d.lon, d.lat],
+          getText: (d: ClusterMarker) =>
+            d._clusterCount && d._clusterCount > 1
+              ? `${d._clusterCount} rgns · ${d.event_count}`
+              : String(d.event_count),
+          getSize: (d: ClusterMarker) => (d._clusterCount && d._clusterCount > 1 ? 10 : 13),
+          getColor: (d: ClusterMarker) => {
+            if (hasSelection && d.region_id !== selectedMarkerId) return [255, 200, 80, 40];
+            return [255, 200, 80, 220];
           },
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'top',
+          getPixelOffset: [0, 5],
+          fontFamily: '"Syne", sans-serif',
+          fontWeight: 700,
+          outlineColor: [2, 4, 8, 200],
+          outlineWidth: 2,
+          updateTriggers: { getColor: [selectedMarkerId] },
         })
       );
     }
@@ -451,9 +668,10 @@ export function GlobeViewer({
 
     return result;
   }, [
-    markers,
+    visibleMarkers,
     selectedMarkerId,
     isEnabled,
+    pulsePhase,
     flights,
     ships,
     cyberIOCs,

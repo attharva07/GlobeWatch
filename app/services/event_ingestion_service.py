@@ -81,7 +81,7 @@ class EventIngestionService:
                 existing.metadata_json = metadata_json
                 updated += 1
             else:
-                severity = self._severity_from_category(incoming.category)
+                severity = self._severity_from_event(incoming)
                 self.repo.add(
                     Event(
                         external_id=incoming.external_id,
@@ -139,9 +139,28 @@ class EventIngestionService:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _severity_from_category(category: str) -> str:
-        if category in {"weather_alert", "public_health"}:
+    def _severity_from_event(event: ProviderEvent) -> str:
+        """Derive severity from category and GDELT tone score.
+
+        GDELT tone is a float where more-negative values indicate more negative
+        coverage (conflict, disaster, crisis).  Typical range is roughly -10 to
+        +10; values below -5 reliably indicate alarming content.
+        """
+        category = event.category
+        try:
+            tone = float(event.metadata.get("tone") or 0)
+        except (TypeError, ValueError):
+            tone = 0.0
+
+        if category == "weather_alert":
             return "high"
-        if category in {"civic"}:
+        if category == "public_health":
+            return "high" if tone < -3.0 else "medium"
+        if category == "civic":
+            return "high" if tone < -5.0 else "medium"
+        # world_event and everything else — use tone to differentiate
+        if tone < -5.0:
+            return "high"
+        if tone < -2.0:
             return "medium"
         return "low"

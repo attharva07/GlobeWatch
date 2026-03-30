@@ -246,12 +246,13 @@ class GDELTProvider:
             source_name = str(item.get("domain") or "GDELT").strip() or "GDELT"
             url = item.get("url")
             category = self._categorize(title)
+            description = f"Via {source_name} — {country_name}"
 
             normalized.append(
                 ProviderEvent(
                     external_id=self._external_id(url, item),
                     title=title,
-                    description=title,
+                    description=description,
                     category=category,
                     source=source_name,
                     provider="gdelt",

@@ -4,6 +4,7 @@ import { formatTimestamp } from '../lib/colors';
 interface MarkerPanelProps {
   marker: RegionMarker | null;
   events: RegionEvent[];
+  loading?: boolean;
 }
 
 function CategoryPill({ category }: { category: string }) {
@@ -20,7 +21,7 @@ function CategoryPill({ category }: { category: string }) {
   );
 }
 
-export function MarkerPanel({ marker, events }: MarkerPanelProps) {
+export function MarkerPanel({ marker, events, loading }: MarkerPanelProps) {
   if (!marker) {
     return (
       <aside className="marker-panel">
@@ -55,9 +56,15 @@ export function MarkerPanel({ marker, events }: MarkerPanelProps) {
       </div>
 
       <div className="marker-panel-events">
-        {events.length === 0 && (
+        {loading && (
+          <div className="panel-loading">
+            <div className="panel-spinner" />
+            <span>Loading events…</span>
+          </div>
+        )}
+        {!loading && events.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: '11px', padding: '12px 0', textAlign: 'center' }}>
-            Loading events...
+            No events found for this region.
           </div>
         )}
         {events.map((event) => (
@@ -66,6 +73,9 @@ export function MarkerPanel({ marker, events }: MarkerPanelProps) {
               <div className="event-title">{event.title}</div>
               <CategoryPill category={event.category} />
             </div>
+            {event.description && event.description !== event.title && (
+              <div className="event-description">{event.description}</div>
+            )}
             <div className="event-meta">
               <span className="event-source">{event.source}</span>
               <span className="event-meta-sep" />

@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.database import get_db_session
 from app.core.security import rate_limit_guard
 from app.schemas.event import EventListResponse, EventRead
+from app.services.event_ingestion_service import EventIngestionService
 from app.services.news_service import NewsService
 from app.utils.enums import SeverityLevel
 
@@ -31,3 +32,9 @@ def list_events(
 @router.get("/status")
 def news_status(db: Session = Depends(get_db_session)) -> dict[str, str | bool | int]:
     return NewsService(db, get_settings()).status()
+
+
+@router.post("/ingest", dependencies=[Depends(rate_limit_guard)])
+def trigger_ingest(db: Session = Depends(get_db_session)) -> dict[str, int | str | bool]:
+    """Manually trigger an ingestion cycle (admin/dev use)."""
+    return EventIngestionService(db, get_settings()).ingest()
