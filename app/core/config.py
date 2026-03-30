@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     GDELT_QUERY: str = "(flood OR wildfire OR earthquake OR outbreak OR protest)"
     GDELT_MAX_RECORDS: int = 50
 
+    # Live provider flags (all optional / free-tier)
+    OPENSKY_ENABLED: bool = True
+    OPENSKY_USERNAME: str = ""
+    OPENSKY_PASSWORD: str = ""
+    AISHUB_USERNAME: str = ""
+    ACLED_API_KEY: str = ""
+    ACLED_EMAIL: str = ""
+    CELESTRAK_ENABLED: bool = True
+    THREAT_INTEL_ENABLED: bool = True
+
     @staticmethod
     def _parse_list_like_env(value: object) -> list[str]:
         if value is None:

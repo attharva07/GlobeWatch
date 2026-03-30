@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
-class FlightTrack(BaseModel):
+class _ExtraAllowed(BaseModel):
+    """Base model that passes unknown fields through to the JSON response."""
+    model_config = ConfigDict(extra="allow")
+
+
+class FlightTrack(_ExtraAllowed):
     id: str
     callsign: str
     origin: list[float]
@@ -19,6 +24,8 @@ class FlightTrack(BaseModel):
     altitude: float
     aircraft_type: str
     timestamp: datetime
+    # Optional enriched fields from live providers
+    origin_country: str | None = None
 
 
 class FlightListResponse(BaseModel):
@@ -26,7 +33,7 @@ class FlightListResponse(BaseModel):
     count: int
 
 
-class ShipTrack(BaseModel):
+class ShipTrack(_ExtraAllowed):
     id: str
     name: str
     mmsi: str
@@ -37,6 +44,8 @@ class ShipTrack(BaseModel):
     ship_type: str
     destination: str
     timestamp: datetime
+    flag: str | None = None
+    imo: str | None = None
 
 
 class ShipListResponse(BaseModel):
@@ -44,7 +53,7 @@ class ShipListResponse(BaseModel):
     count: int
 
 
-class CyberIOC(BaseModel):
+class CyberIOC(_ExtraAllowed):
     id: str
     ip: str
     lat: float
@@ -54,8 +63,8 @@ class CyberIOC(BaseModel):
     country: str
     isp: str
     count: int
-    first_seen: datetime
-    last_seen: datetime
+    first_seen: str
+    last_seen: str
 
 
 class CyberIOCListResponse(BaseModel):
@@ -63,12 +72,14 @@ class CyberIOCListResponse(BaseModel):
     count: int
 
 
-class SignalCoverage(BaseModel):
+class SignalCoverage(_ExtraAllowed):
     lat: float
     lon: float
     intensity: float
     frequency: float
     signal_type: str
+    station_name: str | None = None
+    observations: int | None = None
 
 
 class SignalListResponse(BaseModel):
@@ -76,7 +87,7 @@ class SignalListResponse(BaseModel):
     count: int
 
 
-class SatelliteOrbit(BaseModel):
+class SatelliteOrbit(_ExtraAllowed):
     id: str
     name: str
     norad_id: int
@@ -84,6 +95,8 @@ class SatelliteOrbit(BaseModel):
     current_position: list[float]
     orbit_type: str
     timestamp: datetime
+    tle_line1: str | None = None
+    tle_line2: str | None = None
 
 
 class SatelliteListResponse(BaseModel):
@@ -91,14 +104,17 @@ class SatelliteListResponse(BaseModel):
     count: int
 
 
-class ConflictEvent(BaseModel):
+class ConflictEvent(_ExtraAllowed):
     lat: float
     lon: float
     type: str
     date: str
+    fatalities: int | None = None
+    actor1: str | None = None
+    actor2: str | None = None
 
 
-class ConflictZone(BaseModel):
+class ConflictZone(_ExtraAllowed):
     id: str
     name: str
     geometry: dict[str, Any]
@@ -113,7 +129,7 @@ class ConflictListResponse(BaseModel):
     count: int
 
 
-class EntityLink(BaseModel):
+class EntityLink(_ExtraAllowed):
     id: str
     source_name: str
     target_name: str
@@ -121,6 +137,8 @@ class EntityLink(BaseModel):
     target_position: list[float]
     relationship: str
     strength: float
+    source_events: int | None = None
+    target_events: int | None = None
 
 
 class EntityLinkListResponse(BaseModel):

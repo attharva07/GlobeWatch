@@ -185,19 +185,38 @@ COUNTRY_CENTROIDS: dict[str, tuple[float, float, str]] = {
 }
 
 
-class GDELTProvider:
-    """Adapter for GDELT DOC 2.0 API.
+_GEO_API_BASE = "https://api.gdeltproject.org/api/v2/geo/geo"
 
-    The DOC 2.0 ArtList mode does NOT return lat/lon fields — it returns
-    url, title, seendate, socialimage, domain, language, sourcecountry.
-    We resolve coordinates from the sourcecountry FIPS code using a
-    built-in centroid lookup table.
+
+class GDELTProvider:
+    """Adapter for GDELT DOC 2.0 API (ArtList) + GEO 2.0 API (precise coords).
+
+    Makes two requests in sequence:
+      1. ArtList — country-level with centroid fallback
+      2. GEO 2.0  — same query with precise lat/lon per article
+
+    GEO 2.0 results take priority (more precise placement); ArtList fills the
+    rest up to GDELT_MAX_RECORDS.
     """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
     def fetch_events(self) -> list[ProviderEvent]:
+        geo_events = self._fetch_geo()
+        artlist_events = self._fetch_artlist()
+        # Merge: GEO first (precise), then ArtList deduped by external_id
+        seen_ids: set[str] = {e.external_id for e in geo_events if e.external_id}
+        merged = list(geo_events)
+        for ev in artlist_events:
+            if ev.external_id and ev.external_id in seen_ids:
+                continue
+            merged.append(ev)
+            if ev.external_id:
+                seen_ids.add(ev.external_id)
+        return merged
+
+    def _fetch_artlist(self) -> list[ProviderEvent]:
         params = {
             "query": self.settings.GDELT_QUERY,
             "mode": "ArtList",
@@ -222,37 +241,24 @@ class GDELTProvider:
         for item in articles:
             if not isinstance(item, dict):
                 continue
-
-            # Accept articles in any language to ensure global coverage.
-            # Previously only English articles were accepted, which dropped
-            # most non-English-source events and left large regions empty.
             language = str(item.get("language") or "").strip()
-
-            # Resolve coordinates from sourcecountry FIPS code.
-            # The DOC 2.0 ArtList response does NOT include locationlat/locationlong —
-            # those only exist in the GEO 2.0 API. We use a centroid lookup instead.
             fips_code = str(item.get("sourcecountry") or "").strip().upper()
             centroid = COUNTRY_CENTROIDS.get(fips_code)
             if centroid is None:
-                # Unknown country — skip rather than place at (0, 0)
                 continue
             lat_f, lon_f, country_name = centroid
-
             title = str(item.get("title") or "Untitled event").strip()
             if not title:
                 continue
-
             seen_date = self._parse_timestamp(item.get("seendate"))
             source_name = str(item.get("domain") or "GDELT").strip() or "GDELT"
             url = item.get("url")
             category = self._categorize(title)
-            description = f"Via {source_name} — {country_name}"
-
             normalized.append(
                 ProviderEvent(
                     external_id=self._external_id(url, item),
                     title=title,
-                    description=description,
+                    description=f"Via {source_name} — {country_name}",
                     category=category,
                     source=source_name,
                     provider="gdelt",
@@ -270,7 +276,83 @@ class GDELTProvider:
                     },
                 )
             )
+        return normalized
 
+    def _fetch_geo(self) -> list[ProviderEvent]:
+        """Fetch GDELT GEO 2.0 API for articles with precise lat/lon coordinates."""
+        params = {
+            "query": self.settings.GDELT_QUERY,
+            "format": "json",
+            "timespan": "1d",
+            "maxrecords": min(self.settings.GDELT_MAX_RECORDS, 250),
+        }
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                response = client.get(_GEO_API_BASE, params=params)
+                if response.status_code in (429, 503):
+                    return []
+                response.raise_for_status()
+                payload = response.json()
+        except Exception:
+            return []  # GEO API is optional enrichment — silently skip on failure
+
+        articles = payload.get("articles", []) if isinstance(payload, dict) else []
+        normalized: list[ProviderEvent] = []
+        for item in articles:
+            if not isinstance(item, dict):
+                continue
+            # GEO 2.0 returns precise location coordinates
+            lat = item.get("actiongeo_lat") or item.get("actor1geo_lat") or item.get("avg_tone")
+            lon = item.get("actiongeo_long") or item.get("actiongeo_lon") or item.get("actor1geo_long")
+            # Fallback: try alternative field names used by different GDELT response versions
+            if lat is None:
+                lat = item.get("locationlat") or item.get("lat")
+            if lon is None:
+                lon = item.get("locationlon") or item.get("lon") or item.get("locationlong")
+            try:
+                lat_f = float(lat)
+                lon_f = float(lon)
+            except (TypeError, ValueError):
+                continue
+            if lat_f == 0 and lon_f == 0:
+                continue
+            title = str(item.get("title") or "Untitled event").strip()
+            if not title:
+                continue
+            # Use GEO-provided country name when available
+            country_name = str(
+                item.get("actiongeo_fullname") or item.get("actiongeo_countrycode") or
+                item.get("locationfullname") or "Unknown"
+            ).split(",")[-1].strip() or "Unknown"
+            # Fallback to FIPS centroid country name
+            fips = str(item.get("sourcecountry") or "").strip().upper()
+            if country_name == "Unknown" and fips in COUNTRY_CENTROIDS:
+                country_name = COUNTRY_CENTROIDS[fips][2]
+            url = item.get("url")
+            source_name = str(item.get("domain") or "GDELT").strip() or "GDELT"
+            category = self._categorize(title)
+            normalized.append(
+                ProviderEvent(
+                    external_id=self._external_id(url, item),
+                    title=title,
+                    description=f"Via {source_name} — {country_name} [geo]",
+                    category=category,
+                    source=source_name,
+                    provider="gdelt-geo",
+                    lat=lat_f,
+                    lon=lon_f,
+                    country=country_name,
+                    city=country_name,
+                    event_timestamp=self._parse_timestamp(item.get("seendate")),
+                    url=str(url).strip() if isinstance(url, str) and url.strip() else None,
+                    metadata={
+                        "tone": item.get("tone") or item.get("avg_tone"),
+                        "language": str(item.get("language") or "").strip(),
+                        "geo_source": "gdelt_geo_v2",
+                        "location_fullname": str(item.get("actiongeo_fullname") or ""),
+                    },
+                )
+            )
         return normalized
 
     @staticmethod

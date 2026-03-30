@@ -7,12 +7,14 @@ import contextlib
 import logging
 from collections.abc import AsyncGenerator
 
+from typing import Any
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import cameras, flights, globe, health, layers, locations, news, weather
+from app.api.routes import cameras, flights, globe, health, layers, locations, news, status, weather
 from app.core.config import Settings, get_settings
 from app.core.database import get_db_session
 from app.core.logging import setup_logging
@@ -44,6 +46,16 @@ async def ingestion_loop(app_settings: Settings, initial_delay_seconds: int = 0)
         await asyncio.sleep(app_settings.INGESTION_INTERVAL_SECONDS)
 
 
+async def _provider_loop(name: str, coro_fn: Any, interval: float) -> None:
+    """Generic background loop for live-data providers."""
+    while True:
+        try:
+            await coro_fn()
+        except Exception:
+            logger.exception("Provider loop '%s' failed", name)
+        await asyncio.sleep(interval)
+
+
 def create_app(app_settings: Settings) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Starting service", extra={"path": "startup", "client_ip": "-"})
@@ -68,9 +80,58 @@ def create_app(app_settings: Settings) -> FastAPI:
             db.close()
 
         ingestion_task: asyncio.Task[None] | None = None
+        provider_tasks: list[asyncio.Task[None]] = []
+
         if app_settings.ENVIRONMENT != "test" and app_settings.INGESTION_ENABLED and app_settings.INGESTION_PROVIDER:
             initial_delay = app_settings.INGESTION_INTERVAL_SECONDS if startup_ingestion_attempted else 0
             ingestion_task = asyncio.create_task(ingestion_loop(app_settings, initial_delay_seconds=initial_delay))
+
+        if app_settings.ENVIRONMENT != "test":
+            from app.services.providers import (
+                opensky_provider,
+                satellite_provider,
+                satnogs_provider,
+                threat_intel_provider,
+                ucdp_provider,
+            )
+            from app.services.layer_data_service import LayerDataService
+            from app.services.layer_cache import set_cache
+
+            # Populate caches immediately with demo data so first requests are fast
+            set_cache("flights", LayerDataService.get_flights(), source="demo")
+            set_cache("ships", LayerDataService.get_ships(), source="demo")
+            set_cache("cyber", LayerDataService.get_cyber_iocs(), source="demo")
+            set_cache("signals", LayerDataService.get_signals(), source="demo")
+            set_cache("satellites", LayerDataService.get_satellites(), source="demo")
+            set_cache("conflicts", LayerDataService.get_conflicts(), source="demo")
+
+            # Start live provider refresh loops
+            if app_settings.OPENSKY_ENABLED:
+                provider_tasks.append(asyncio.create_task(
+                    _provider_loop(
+                        "opensky",
+                        lambda: opensky_provider.refresh_flights(
+                            username=app_settings.OPENSKY_USERNAME,
+                            password=app_settings.OPENSKY_PASSWORD,
+                        ),
+                        15.0,
+                    )
+                ))
+            if app_settings.CELESTRAK_ENABLED:
+                provider_tasks.append(asyncio.create_task(
+                    _provider_loop("satellites", satellite_provider.refresh_satellites, 300.0)
+                ))
+                provider_tasks.append(asyncio.create_task(
+                    _provider_loop("satnogs", satnogs_provider.refresh_signals, 600.0)
+                ))
+            if app_settings.THREAT_INTEL_ENABLED:
+                provider_tasks.append(asyncio.create_task(
+                    _provider_loop("threat_intel", threat_intel_provider.refresh_cyber_iocs, 300.0)
+                ))
+            # UCDP conflicts refresh hourly
+            provider_tasks.append(asyncio.create_task(
+                _provider_loop("ucdp", ucdp_provider.refresh_conflicts, 3600.0)
+            ))
 
         logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
         yield
@@ -79,6 +140,10 @@ def create_app(app_settings: Settings) -> FastAPI:
             ingestion_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await ingestion_task
+        for task in provider_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         logger.info("Shutting down service", extra={"path": "shutdown", "client_ip": "-"})
 
     app = FastAPI(
@@ -134,6 +199,7 @@ def create_app(app_settings: Settings) -> FastAPI:
     app.include_router(flights.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     app.include_router(cameras.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     app.include_router(layers.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
+    app.include_router(status.router, prefix=app_settings.API_PREFIX, dependencies=[Depends(optional_api_key_guard)])
     return app
 
 

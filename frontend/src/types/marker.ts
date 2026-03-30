@@ -43,6 +43,7 @@ export interface FlightTrack {
   altitude: number;
   aircraft_type: string;
   timestamp: string;
+  origin_country?: string;
 }
 
 export interface ShipTrack {
@@ -56,6 +57,8 @@ export interface ShipTrack {
   ship_type: string;
   destination: string;
   timestamp: string;
+  flag?: string;
+  imo?: string;
 }
 
 export interface CyberIOC {
@@ -88,6 +91,8 @@ export interface SatelliteOrbit {
   current_position: [number, number, number];
   orbit_type: string;
   timestamp: string;
+  tle_line1?: string;
+  tle_line2?: string;
 }
 
 export interface ConflictZone {
@@ -108,6 +113,19 @@ export interface EntityLink {
   target_position: [number, number];
   relationship: string;
   strength: number;
+  source_events?: number;
+  target_events?: number;
+}
+
+export interface LayerCounts {
+  news: number;
+  flights: number;
+  ships: number;
+  cyber: number;
+  signals: number;
+  satellites: number;
+  conflicts: number;
+  entity_links: number;
 }
 
 export type LayerType =

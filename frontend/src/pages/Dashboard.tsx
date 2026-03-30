@@ -21,6 +21,7 @@ import type {
   RegionEvent,
   RegionMarker,
   LayerState,
+  LayerCounts,
   FlightTrack,
   ShipTrack,
   CyberIOC,
@@ -40,6 +41,17 @@ const DEFAULT_LAYERS: LayerState[] = [
   { id: 'conflicts', label: 'Conflicts', enabled: false, icon: '⚔️' },
   { id: 'entity_links', label: 'Entity Links', enabled: false, icon: '🔗' },
 ];
+
+// Auto-refresh intervals per layer (ms)
+const LAYER_REFRESH_MS: Partial<Record<string, number>> = {
+  flights: 15_000,
+  ships: 30_000,
+  cyber: 300_000,
+  satellites: 120_000,
+  signals: 600_000,
+  conflicts: 600_000,
+  entity_links: 600_000,
+};
 
 type SeverityFilter = 'all' | 'high' | 'medium' | 'low';
 
@@ -70,9 +82,7 @@ function SeverityFilterBar({
           onClick={() => onChange(f)}
         >
           {f === 'all' ? 'ALL' : f.toUpperCase()}
-          {f !== 'all' && (
-            <span className="sev-filter-count">{counts[f]}</span>
-          )}
+          {f !== 'all' && <span className="sev-filter-count">{counts[f]}</span>}
         </button>
       ))}
     </div>
@@ -105,72 +115,78 @@ export function Dashboard() {
     [layers]
   );
 
-  // Severity counts for filter bar
-  const severityCounts = useMemo(
-    () => ({
-      high: markers.filter((m) => m.severity === 'high').length,
-      medium: markers.filter((m) => m.severity === 'medium').length,
-      low: markers.filter((m) => m.severity === 'low').length,
-    }),
-    [markers]
-  );
+  // Per-layer fetch functions (stable references via useCallback)
+  const doFetchFlights = useCallback(() => {
+    fetchFlights().then((r) => setFlights(r.flights as FlightTrack[])).catch(() => {});
+  }, []);
+  const doFetchShips = useCallback(() => {
+    fetchShips().then((r) => setShips(r.ships as ShipTrack[])).catch(() => {});
+  }, []);
+  const doFetchCyber = useCallback(() => {
+    fetchCyberIOCs().then((r) => setCyberIOCs(r.iocs as CyberIOC[])).catch(() => {});
+  }, []);
+  const doFetchSignals = useCallback(() => {
+    fetchSignals().then((r) => setSignals(r.signals as SignalCoverage[])).catch(() => {});
+  }, []);
+  const doFetchSatellites = useCallback(() => {
+    fetchSatellites().then((r) => setSatellites(r.satellites as SatelliteOrbit[])).catch(() => {});
+  }, []);
+  const doFetchConflicts = useCallback(() => {
+    fetchConflicts().then((r) => setConflicts(r.conflicts as ConflictZone[])).catch(() => {});
+  }, []);
+  const doFetchEntityLinks = useCallback(() => {
+    fetchEntityLinks().then((r) => setEntityLinks(r.links as EntityLink[])).catch(() => {});
+  }, []);
 
-  // Fetch layer data when enabled
-  useEffect(() => {
-    if (isEnabled('flights')) {
-      fetchFlights().then((r) => setFlights(r.flights as FlightTrack[])).catch(() => setFlights([]));
-    } else {
-      setFlights([]);
-    }
-  }, [isEnabled]);
+  const layerFetchers: Record<string, () => void> = useMemo(() => ({
+    flights: doFetchFlights,
+    ships: doFetchShips,
+    cyber: doFetchCyber,
+    signals: doFetchSignals,
+    satellites: doFetchSatellites,
+    conflicts: doFetchConflicts,
+    entity_links: doFetchEntityLinks,
+  }), [doFetchFlights, doFetchShips, doFetchCyber, doFetchSignals, doFetchSatellites, doFetchConflicts, doFetchEntityLinks]);
 
+  // Initial fetch + reset when layers are toggled
   useEffect(() => {
-    if (isEnabled('ships')) {
-      fetchShips().then((r) => setShips(r.ships as ShipTrack[])).catch(() => setShips([]));
-    } else {
-      setShips([]);
-    }
-  }, [isEnabled]);
-
-  useEffect(() => {
-    if (isEnabled('cyber')) {
-      fetchCyberIOCs().then((r) => setCyberIOCs(r.iocs as CyberIOC[])).catch(() => setCyberIOCs([]));
-    } else {
-      setCyberIOCs([]);
-    }
-  }, [isEnabled]);
-
-  useEffect(() => {
-    if (isEnabled('signals')) {
-      fetchSignals().then((r) => setSignals(r.signals as SignalCoverage[])).catch(() => setSignals([]));
-    } else {
-      setSignals([]);
-    }
-  }, [isEnabled]);
+    if (isEnabled('flights')) { doFetchFlights(); } else { setFlights([]); }
+  }, [isEnabled, doFetchFlights]);
 
   useEffect(() => {
-    if (isEnabled('satellites')) {
-      fetchSatellites().then((r) => setSatellites(r.satellites as SatelliteOrbit[])).catch(() => setSatellites([]));
-    } else {
-      setSatellites([]);
-    }
-  }, [isEnabled]);
+    if (isEnabled('ships')) { doFetchShips(); } else { setShips([]); }
+  }, [isEnabled, doFetchShips]);
 
   useEffect(() => {
-    if (isEnabled('conflicts')) {
-      fetchConflicts().then((r) => setConflicts(r.conflicts as ConflictZone[])).catch(() => setConflicts([]));
-    } else {
-      setConflicts([]);
-    }
-  }, [isEnabled]);
+    if (isEnabled('cyber')) { doFetchCyber(); } else { setCyberIOCs([]); }
+  }, [isEnabled, doFetchCyber]);
 
   useEffect(() => {
-    if (isEnabled('entity_links')) {
-      fetchEntityLinks().then((r) => setEntityLinks(r.links as EntityLink[])).catch(() => setEntityLinks([]));
-    } else {
-      setEntityLinks([]);
+    if (isEnabled('signals')) { doFetchSignals(); } else { setSignals([]); }
+  }, [isEnabled, doFetchSignals]);
+
+  useEffect(() => {
+    if (isEnabled('satellites')) { doFetchSatellites(); } else { setSatellites([]); }
+  }, [isEnabled, doFetchSatellites]);
+
+  useEffect(() => {
+    if (isEnabled('conflicts')) { doFetchConflicts(); } else { setConflicts([]); }
+  }, [isEnabled, doFetchConflicts]);
+
+  useEffect(() => {
+    if (isEnabled('entity_links')) { doFetchEntityLinks(); } else { setEntityLinks([]); }
+  }, [isEnabled, doFetchEntityLinks]);
+
+  // Auto-refresh intervals per active layer
+  useEffect(() => {
+    const timers: ReturnType<typeof setInterval>[] = [];
+    for (const [id, ms] of Object.entries(LAYER_REFRESH_MS)) {
+      if (!isEnabled(id) || !ms) continue;
+      const fn = layerFetchers[id];
+      if (fn) timers.push(setInterval(fn, ms));
     }
-  }, [isEnabled]);
+    return () => timers.forEach(clearInterval);
+  }, [isEnabled, layerFetchers]);
 
   // Fetch region events when a marker is selected
   useEffect(() => {
@@ -183,9 +199,7 @@ export function Dashboard() {
     setEventsError(null);
     setEventsLoading(true);
     fetchRegionEvents(selectedMarker.region_id)
-      .then((response) => {
-        setEvents(response.events);
-      })
+      .then((r) => setEvents(r.events))
       .catch((err: unknown) => {
         setEvents([]);
         setEventsError(err instanceof Error ? err.message : 'Failed to load region events.');
@@ -194,12 +208,8 @@ export function Dashboard() {
   }, [selectedMarker]);
 
   const toggleLayer = useCallback((id: string) => {
-    setLayers((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l))
-    );
-    if (id === 'news') {
-      setSelectedMarker(null);
-    }
+    setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)));
+    if (id === 'news') setSelectedMarker(null);
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -223,18 +233,12 @@ export function Dashboard() {
 
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-
       switch (e.key) {
-        case 'Escape':
-          handleBack();
-          break;
-        case 'r':
-        case 'R':
-          handleRefresh();
-          break;
+        case 'Escape': handleBack(); break;
+        case 'r': case 'R': handleRefresh(); break;
         case '1': toggleLayer('news'); break;
         case '2': toggleLayer('flights'); break;
         case '3': toggleLayer('ships'); break;
@@ -245,10 +249,28 @@ export function Dashboard() {
         case '8': toggleLayer('entity_links'); break;
       }
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [toggleLayer, handleRefresh, handleBack]);
+
+  // Severity counts for filter bar
+  const severityCounts = useMemo(() => ({
+    high: markers.filter((m) => m.severity === 'high').length,
+    medium: markers.filter((m) => m.severity === 'medium').length,
+    low: markers.filter((m) => m.severity === 'low').length,
+  }), [markers]);
+
+  // Layer record counts for LayerControls badges
+  const layerCounts: LayerCounts = useMemo(() => ({
+    news: markers.length,
+    flights: flights.length,
+    ships: ships.length,
+    cyber: cyberIOCs.length,
+    signals: signals.length,
+    satellites: satellites.length,
+    conflicts: conflicts.length,
+    entity_links: entityLinks.length,
+  }), [markers, flights, ships, cyberIOCs, signals, satellites, conflicts, entityLinks]);
 
   return (
     <div className="dashboard-layout">
@@ -268,7 +290,6 @@ export function Dashboard() {
         severityFilter={severityFilter}
       />
 
-      {/* Decorative overlays */}
       <div className="scanline" />
       <div className="corner-tl" />
       <div className="corner-br" />
@@ -302,20 +323,12 @@ export function Dashboard() {
         </div>
       </header>
 
-      {/* Severity filter bar */}
       {newsEnabled && (
-        <SeverityFilterBar
-          filter={severityFilter}
-          onChange={setSeverityFilter}
-          counts={severityCounts}
-        />
+        <SeverityFilterBar filter={severityFilter} onChange={setSeverityFilter} counts={severityCounts} />
       )}
 
-      {/* Back button when region is selected */}
       {selectedMarker && (
-        <button className="back-button" onClick={handleBack} title="ESC to deselect">
-          ← Back
-        </button>
+        <button className="back-button" onClick={handleBack} title="ESC to deselect">← Back</button>
       )}
 
       {loading && <LoadingOverlay />}
@@ -328,16 +341,15 @@ export function Dashboard() {
       <LayerControls
         layers={layers}
         markerCount={markerCount}
+        layerCounts={layerCounts}
         loading={loading}
         onToggleLayer={toggleLayer}
         onRefresh={handleRefresh}
       />
 
       <MarkerPanel marker={selectedMarker} events={events} loading={eventsLoading} />
-
       <NewsTicker />
 
-      {/* Keyboard shortcut hint */}
       <div className="kbd-hint">
         <span>R: refresh</span>
         <span>ESC: deselect</span>

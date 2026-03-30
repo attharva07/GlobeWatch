@@ -10,6 +10,19 @@ from sqlalchemy.orm import Session
 from app.models.event import Event
 
 
+# Named tuple-like for country aggregate results
+from dataclasses import dataclass
+
+
+@dataclass
+class CountryAggregate:
+    country: str
+    lat: float
+    lon: float
+    event_count: int
+    top_category: str
+
+
 class EventRepository:
     """Data-access abstraction for Event queries."""
 
@@ -51,6 +64,52 @@ class EventRepository:
 
     def commit(self) -> None:
         self.db.commit()
+
+    def country_aggregates(self, limit: int = 30) -> list[CountryAggregate]:
+        """Return per-country event summaries with centroid coordinates."""
+        rows = (
+            self.db.execute(
+                select(
+                    Event.country,
+                    func.avg(Event.lat).label("lat"),
+                    func.avg(Event.lon).label("lon"),
+                    func.count().label("cnt"),
+                    Event.category,
+                )
+                .where(Event.country != "")
+                .group_by(Event.country, Event.category)
+                .order_by(desc(func.count()))
+                .limit(limit * 5)
+            )
+            .all()
+        )
+        # Aggregate across categories per country
+        country_data: dict[str, dict] = {}
+        for row in rows:
+            c = row.country
+            if c not in country_data:
+                country_data[c] = {
+                    "lat": float(row.lat),
+                    "lon": float(row.lon),
+                    "count": 0,
+                    "top_category": row.category,
+                    "top_count": 0,
+                }
+            country_data[c]["count"] += row.cnt
+            if row.cnt > country_data[c]["top_count"]:
+                country_data[c]["top_count"] = row.cnt
+                country_data[c]["top_category"] = row.category
+
+        return [
+            CountryAggregate(
+                country=c,
+                lat=d["lat"],
+                lon=d["lon"],
+                event_count=d["count"],
+                top_category=d["top_category"],
+            )
+            for c, d in sorted(country_data.items(), key=lambda x: -x[1]["count"])[:limit]
+        ]
 
     def find_by_external_id_or_fingerprint(self, external_id: str | None, fingerprint: str) -> Event | None:
         if external_id:

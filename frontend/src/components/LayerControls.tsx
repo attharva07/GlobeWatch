@@ -1,14 +1,22 @@
-import type { LayerState } from '../types/marker';
+import type { LayerCounts, LayerState } from '../types/marker';
 
 interface LayerControlsProps {
   layers: LayerState[];
   markerCount: number;
+  layerCounts: LayerCounts;
   onToggleLayer: (id: string) => void;
   onRefresh: () => void;
   loading: boolean;
 }
 
-export function LayerControls({ layers, markerCount, onToggleLayer, onRefresh, loading }: LayerControlsProps) {
+export function LayerControls({
+  layers,
+  markerCount,
+  layerCounts,
+  onToggleLayer,
+  onRefresh,
+  loading,
+}: LayerControlsProps) {
   return (
     <section className="layer-controls">
       <div className="panel-header">
@@ -16,22 +24,29 @@ export function LayerControls({ layers, markerCount, onToggleLayer, onRefresh, l
         <span className="panel-header-label">Layers</span>
       </div>
       <div className="panel-body">
-        {layers.map((layer) => (
-          <label key={layer.id} className="toggle-row">
-            <span className="toggle-label">
-              <span className="layer-icon">{layer.icon}</span> {layer.label}
-            </span>
-            <div className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={layer.enabled}
-                onChange={() => onToggleLayer(layer.id)}
-              />
-              <div className="toggle-track" />
-              <div className="toggle-thumb" />
-            </div>
-          </label>
-        ))}
+        {layers.map((layer) => {
+          const count = layerCounts[layer.id as keyof LayerCounts] ?? 0;
+          return (
+            <label key={layer.id} className="toggle-row">
+              <span className="toggle-label">
+                <span className="layer-icon">{layer.icon}</span>
+                <span className="layer-label-text">{layer.label}</span>
+                {layer.enabled && count > 0 && (
+                  <span className="layer-count-badge">{count.toLocaleString()}</span>
+                )}
+              </span>
+              <div className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={layer.enabled}
+                  onChange={() => onToggleLayer(layer.id)}
+                />
+                <div className="toggle-track" />
+                <div className="toggle-thumb" />
+              </div>
+            </label>
+          );
+        })}
 
         <button type="button" className="refresh-button" onClick={onRefresh} disabled={loading}>
           <span className="refresh-icon">↻</span>
