@@ -7,6 +7,7 @@ Free API, no key required: https://network.satnogs.org/api/
 from __future__ import annotations
 
 import logging
+import math
 
 import httpx
 
@@ -39,7 +40,6 @@ async def refresh_signals() -> None:
                         continue
                     obs_count = int(station.get("observations") or station.get("total_count") or 1)
                     # Map observation count → intensity (log scale, capped at 1.0)
-                    import math
                     intensity = min(1.0, math.log10(max(1, obs_count)) / 4.0)
                     stations.append({
                         "lat": float(lat),

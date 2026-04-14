@@ -1,6 +1,7 @@
 """UCDP GED (Georeferenced Event Dataset) provider for conflict data.
 
-Free API, no key required.
+Requires a free API token — register at https://ucdpapi.pcr.uu.se/
+Set UCDP_API_TOKEN in your environment (header: x-ucdp-access-token).
 API docs: https://ucdpapi.pcr.uu.se/
 """
 
@@ -52,15 +53,33 @@ def _make_bbox_feature(lats: list[float], lons: list[float], name: str) -> dict[
     }
 
 
-async def refresh_conflicts() -> None:
+async def refresh_conflicts(api_token: str = "") -> None:
     """Fetch UCDP events and aggregate into conflict zones by country."""
+    if not api_token:
+        logger.warning(
+            "UCDP: no API token configured — skipping refresh. "
+            "Register free at https://ucdpapi.pcr.uu.se and set UCDP_API_TOKEN."
+        )
+        if get_cache("conflicts") is None:
+            set_cache("conflicts", LayerDataService.get_conflicts(), source="demo")
+        return
+
+    headers = {"x-ucdp-access-token": api_token}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.get(
                 _UCDP_URL,
                 params={"pagesize": 1000, "page": 1},
-                timeout=30.0,
+                headers=headers,
             )
+            if r.status_code == 401:
+                logger.error(
+                    "UCDP: 401 Unauthorized — token rejected. "
+                    "Check UCDP_API_TOKEN is correct."
+                )
+                if get_cache("conflicts") is None:
+                    set_cache("conflicts", LayerDataService.get_conflicts(), source="demo")
+                return
             r.raise_for_status()
             payload = r.json()
     except Exception as exc:

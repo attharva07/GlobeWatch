@@ -13,6 +13,7 @@ Credit costs (daily quota: 4,000 for registered users):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -34,18 +35,24 @@ _TOKEN_REFRESH_MARGIN_SECONDS = 60
 
 
 class _TokenManager:
-    """Thread-safe OAuth2 token manager for OpenSky client credentials flow."""
+    """Async-safe OAuth2 token manager for OpenSky client credentials flow."""
 
     def __init__(self, client_id: str, client_secret: str) -> None:
         self._client_id = client_id
         self._client_secret = client_secret
         self._token: str | None = None
         self._expires_at: datetime | None = None
+        self._lock = asyncio.Lock()
 
     def is_valid(self) -> bool:
         if not self._token or not self._expires_at:
             return False
         return datetime.now(UTC) < self._expires_at
+
+    def clear(self) -> None:
+        """Invalidate the cached token (e.g. on 401)."""
+        self._token = None
+        self._expires_at = None
 
     async def get_token(self) -> str | None:
         """Return a valid Bearer token, refreshing if needed."""
@@ -53,7 +60,11 @@ class _TokenManager:
             return None  # no credentials configured — anonymous mode
         if self.is_valid():
             return self._token
-        return await self._refresh()
+        async with self._lock:
+            # Re-check inside lock in case another coroutine already refreshed
+            if self.is_valid():
+                return self._token
+            return await self._refresh()
 
     async def _refresh(self) -> str | None:
         try:
@@ -81,10 +92,20 @@ class _TokenManager:
             )
             return self._token
 
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (400, 401):
+                logger.error(
+                    "OpenSky token refresh failed — invalid credentials (HTTP %d). "
+                    "Check OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET.",
+                    exc.response.status_code,
+                )
+            else:
+                logger.warning("OpenSky token refresh failed: %s", exc)
+            self.clear()
+            return None
         except Exception as exc:
             logger.warning("OpenSky token refresh failed: %s", exc)
-            self._token = None
-            self._expires_at = None
+            self.clear()
             return None
 
 
@@ -139,8 +160,7 @@ async def refresh_flights(
                     "OpenSky: 401 Unauthorized — token may have expired, "
                     "will refresh on next cycle"
                 )
-                manager._token = None
-                manager._expires_at = None
+                manager.clear()
                 _fallback_to_cache()
                 return
 

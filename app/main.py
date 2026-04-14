@@ -111,27 +111,31 @@ def create_app(app_settings: Settings) -> FastAPI:
                     _provider_loop(
                         "opensky",
                         lambda: opensky_provider.refresh_flights(
-                            username=app_settings.OPENSKY_USERNAME,
-                            password=app_settings.OPENSKY_PASSWORD,
+                            client_id=app_settings.OPENSKY_CLIENT_ID,
+                            client_secret=app_settings.OPENSKY_CLIENT_SECRET,
                         ),
-                        15.0,
+                        float(app_settings.OPENSKY_INTERVAL_SECONDS),
                     )
                 ))
             if app_settings.CELESTRAK_ENABLED:
                 provider_tasks.append(asyncio.create_task(
-                    _provider_loop("satellites", satellite_provider.refresh_satellites, 300.0)
+                    _provider_loop("satellites", satellite_provider.refresh_satellites, float(app_settings.SATELLITE_INTERVAL_SECONDS))
                 ))
                 provider_tasks.append(asyncio.create_task(
-                    _provider_loop("satnogs", satnogs_provider.refresh_signals, 600.0)
+                    _provider_loop("satnogs", satnogs_provider.refresh_signals, float(app_settings.SATNOGS_INTERVAL_SECONDS))
                 ))
             if app_settings.THREAT_INTEL_ENABLED:
                 provider_tasks.append(asyncio.create_task(
-                    _provider_loop("threat_intel", threat_intel_provider.refresh_cyber_iocs, 300.0)
+                    _provider_loop("threat_intel", threat_intel_provider.refresh_cyber_iocs, float(app_settings.THREAT_INTEL_INTERVAL_SECONDS))
                 ))
-            # UCDP conflicts refresh hourly
-            provider_tasks.append(asyncio.create_task(
-                _provider_loop("ucdp", ucdp_provider.refresh_conflicts, 3600.0)
-            ))
+            if app_settings.UCDP_ENABLED:
+                provider_tasks.append(asyncio.create_task(
+                    _provider_loop(
+                        "ucdp",
+                        lambda: ucdp_provider.refresh_conflicts(api_token=app_settings.UCDP_API_TOKEN),
+                        float(app_settings.UCDP_INTERVAL_SECONDS),
+                    )
+                ))
 
         logger.info("Service ready", extra={"path": "startup", "client_ip": "-"})
         yield

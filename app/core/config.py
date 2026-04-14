@@ -68,19 +68,21 @@ class Settings(BaseSettings):
     # Satellites — Celestrak TLE propagation                              #
     # ------------------------------------------------------------------ #
     CELESTRAK_ENABLED: bool = False
-    SATELLITE_ENABLED: bool = False
     SATELLITE_INTERVAL_SECONDS: int = 300
+    SATNOGS_INTERVAL_SECONDS: int = 600
 
     # ------------------------------------------------------------------ #
     # Conflicts — UCDP armed conflict data                                 #
     # ------------------------------------------------------------------ #
     UCDP_ENABLED: bool = False
     UCDP_INTERVAL_SECONDS: int = 3600
+    UCDP_API_TOKEN: str = ""   # required — register free at https://ucdpapi.pcr.uu.se
 
     # ------------------------------------------------------------------ #
     # Threat intel                                                         #
     # ------------------------------------------------------------------ #
     THREAT_INTEL_ENABLED: bool = False
+    THREAT_INTEL_INTERVAL_SECONDS: int = 300
 
     # ------------------------------------------------------------------ #
     # ACLED — Armed Conflict Location & Event Data                         #
@@ -139,6 +141,17 @@ class Settings(BaseSettings):
     def validate_ingestion_interval(cls, value: int) -> int:
         if value < 60:
             raise ValueError("INGESTION_INTERVAL_SECONDS must be >= 60")
+        return value
+
+    @field_validator("OPENSKY_INTERVAL_SECONDS")
+    @classmethod
+    def validate_opensky_interval(cls, value: int) -> int:
+        if value < 60:
+            raise ValueError(
+                "OPENSKY_INTERVAL_SECONDS must be >= 60. "
+                "At 4 credits/call and 4,000 daily quota, polling faster than 60s "
+                "will exhaust credits in under 3 hours."
+            )
         return value
 
     @model_validator(mode="after")

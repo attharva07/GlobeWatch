@@ -41,9 +41,13 @@ export interface FlightTrack {
   heading: number;
   speed: number;
   altitude: number;
+  vertical_rate_fpm?: number;
+  squawk?: string | null;
   aircraft_type: string;
+  aircraft_category?: string;
   timestamp: string;
   origin_country?: string;
+  authenticated?: boolean;
 }
 
 export interface ShipTrack {
@@ -81,6 +85,8 @@ export interface SignalCoverage {
   intensity: number;
   frequency: number;
   signal_type: string;
+  station_name?: string;
+  observations?: number;
 }
 
 export interface SatelliteOrbit {
@@ -102,7 +108,15 @@ export interface ConflictZone {
   severity: string;
   event_count: number;
   description: string;
-  events: { lat: number; lon: number; type: string; date: string }[];
+  events: {
+    lat: number;
+    lon: number;
+    type: string;
+    date: string;
+    fatalities?: number;
+    actor1?: string;
+    actor2?: string;
+  }[];
 }
 
 export interface EntityLink {
@@ -144,3 +158,11 @@ export interface LayerState {
   enabled: boolean;
   icon: string;
 }
+
+export type SelectedLayerItem =
+  | { type: 'flight'; data: FlightTrack }
+  | { type: 'ship'; data: ShipTrack }
+  | { type: 'ioc'; data: CyberIOC }
+  | { type: 'signal'; data: SignalCoverage }
+  | { type: 'satellite'; data: SatelliteOrbit }
+  | { type: 'conflict'; data: ConflictZone };

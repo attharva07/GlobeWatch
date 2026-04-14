@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderRateLimitError(Exception):
@@ -293,8 +296,9 @@ class GDELTProvider:
                     return []
                 response.raise_for_status()
                 payload = response.json()
-        except Exception:
-            return []  # GEO API is optional enrichment — silently skip on failure
+        except Exception as exc:
+            logger.debug("GDELT GEO API failed (optional enrichment skipped): %s", exc)
+            return []
 
         articles = payload.get("articles", []) if isinstance(payload, dict) else []
         normalized: list[ProviderEvent] = []
@@ -302,7 +306,7 @@ class GDELTProvider:
             if not isinstance(item, dict):
                 continue
             # GEO 2.0 returns precise location coordinates
-            lat = item.get("actiongeo_lat") or item.get("actor1geo_lat") or item.get("avg_tone")
+            lat = item.get("actiongeo_lat") or item.get("actor1geo_lat")
             lon = item.get("actiongeo_long") or item.get("actiongeo_lon") or item.get("actor1geo_long")
             # Fallback: try alternative field names used by different GDELT response versions
             if lat is None:

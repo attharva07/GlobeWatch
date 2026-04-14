@@ -7,7 +7,11 @@
       "Bash(npx tsc:*)",
       "Bash(npx eslint:*)",
       "Bash(npx vite:*)",
-      "Bash(D:/GlobeWatch/.env.example:*)"
+      "Bash(D:/GlobeWatch/.env.example:*)",
+      "Bash(grep -A 3 \"except Exception\" /d/GlobeWatch/app/services/providers/*.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://ucdpapi.pcr.uu.se/api/gedevents/24.1?pagesize=1&page=1\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://ucdpapi.pcr.uu.se/api/gedevents/25.1?pagesize=1&page=1\")",
+      "Bash(curl -si \"https://ucdpapi.pcr.uu.se/api/gedevents/23.1?pagesize=1&page=1\")"
     ]
   }
 }
